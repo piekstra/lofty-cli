@@ -1,0 +1,40 @@
+{
+  "programs": [
+    {
+      "propertyId": "01FMN4Q2M9MW33ERXJKG61MTRD",
+      "dailyRewards": 10,
+      "perBlockRewards": 0.4166666666666667,
+      "blockDurationMs": 3600000,
+      "blocksPerDay": 24,
+      "allowedSpread": 2,
+      "minContracts": 4,
+      "minTwoSidedLiquidity": 1,
+      "minOrderAgeMs": 3000,
+      "address": {
+        "line1": "2094 W 34th Place",
+        "line2": "Cleveland, OH 44113"
+      },
+      "thumbnail": "https://images.lofty.ai/images/01FMN4Q2M9MW33ERXJKG61MTRD/thumb.webp",
+      "slug": "2094-W-34th-Place_Cleveland-OH-44113",
+      "updatedAt": 1781860865492
+    },
+    {
+      "propertyId": "01JGMSZ4NEGCFF8T8CEE5XXYQ7",
+      "dailyRewards": 10,
+      "perBlockRewards": 0.4166666666666667,
+      "blockDurationMs": 3600000,
+      "blocksPerDay": 24,
+      "allowedSpread": 2,
+      "minContracts": 2,
+      "minTwoSidedLiquidity": 1,
+      "minOrderAgeMs": 3000,
+      "address": {
+        "line1": "2221 E Chase St",
+        "line2": "Baltimore, MD 21213"
+      },
+      "thumbnail": "https://images.lofty.ai/images/01JGMSZ4NEGCFF8T8CEE5XXYQ7/thumb.webp",
+      "slug": "2221-E-Chase-St_Baltimore-MD-21213",
+      "updatedAt": 1780974358614
+    }
+  ]
+}

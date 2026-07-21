@@ -1,0 +1,26 @@
+{
+  "positions": [
+    {
+      "propertyId": "01SAMPLEPROP00000000000001",
+      "currentTokens": 100,
+      "pendingTokens": 0,
+      "currentEffectiveTokens": 100,
+      "costBasis": 5000.0,
+      "totalSpent": 5000.0,
+      "totalSellValue": 0,
+      "currentValue": 5100.0,
+      "currentPrice": 51.0,
+      "totalRentEarned": 87.65,
+      "tokensPurchased": 100,
+      "tokensSold": 0
+    }
+  ],
+  "totals": {
+    "totalCurrentTokens": 100,
+    "totalPurchasedTokens": 100,
+    "totalCurrentPrincipal": 5000.0,
+    "totalSellValue": 0,
+    "totalRentEarned": 87.65,
+    "totalProperties": 1
+  }
+}

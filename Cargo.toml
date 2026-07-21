@@ -1,0 +1,38 @@
+[package]
+name = "lofty-cli"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+description = "Interact with the Lofty (lofty.ai) fractional real-estate marketplace API — market data, order books, and market-making analysis. Keychain-secured, agent-friendly."
+license = "MIT"
+repository = "https://github.com/piekstra/lofty-cli"
+homepage = "https://github.com/piekstra/lofty-cli"
+readme = "README.md"
+keywords = ["lofty", "real-estate", "market-making", "algorand", "cli"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "lofty"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive", "env"] }
+clap_complete = "4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+pk-cli-core = { git = "https://github.com/piekstra/cli-common", tag = "v0.1.2", features = ["reqwest"] }
+pk-cli-secrets = { git = "https://github.com/piekstra/cli-common", tag = "v0.1.2" }
+pk-cli-config = { git = "https://github.com/piekstra/cli-common", tag = "v0.1.2" }
+pk-cli-selfupdate = { git = "https://github.com/piekstra/cli-common", tag = "v0.1.2" }
+pk-cli-auth = { git = "https://github.com/piekstra/cli-common", tag = "v0.1.2" }
+pk-cli-http = { git = "https://github.com/piekstra/cli-common", tag = "v0.1.2" }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "cookies", "rustls-tls"] }
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+
+[profile.release]
+strip = true
+lto = true
+opt-level = "z"

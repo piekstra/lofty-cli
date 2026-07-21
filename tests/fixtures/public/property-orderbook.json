@@ -1,0 +1,37 @@
+{
+  "propertyId": "01FMN4Q2M9MW33ERXJKG61MTRD",
+  "orderbook": {
+    "bids": [
+      {
+        "price": 11,
+        "quantity": 42
+      },
+      {
+        "price": 10.9,
+        "quantity": 15
+      },
+      {
+        "price": 10.88,
+        "quantity": 20
+      },
+      {
+        "price": 10.85,
+        "quantity": 15
+      }
+    ],
+    "asks": [
+      {
+        "price": 11.9,
+        "quantity": 8
+      },
+      {
+        "price": 12.45,
+        "quantity": 51
+      },
+      {
+        "price": 12.48,
+        "quantity": 103
+      }
+    ]
+  }
+}

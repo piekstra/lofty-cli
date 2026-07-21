@@ -1,0 +1,50 @@
+{
+  "pool": {
+    "poolId": 9000000000010001,
+    "propertyId": "01G4XPM2EVX59KGVACEC12K7V7",
+    "active": true,
+    "price": 38.703965,
+    "priceHigh": 39.996694,
+    "priceLow": 38.703965,
+    "fees": {
+      "lp": 2.5,
+      "platformBuy": 5,
+      "platformSell": 2.5,
+      "operatingReserve": 0
+    },
+    "liquidity": {
+      "base": 323000000,
+      "quote": 718384972,
+      "baseUSD": 12918932162,
+      "quoteUSD": 718384972
+    },
+    "assets": {
+      "base": {
+        "id": 768368477,
+        "symbol": "LFTY0146",
+        "name": "Lofty 703 23rd Ave"
+      },
+      "quote": {
+        "id": 31566704,
+        "symbol": "USDC",
+        "name": "USDC"
+      }
+    },
+    "apy7d": {
+      "quote": 12.020265531295529,
+      "base": 1.6088052848536358
+    },
+    "apy30d": {
+      "quote": 10.639255604221095,
+      "base": 1.4673783031012
+    },
+    "vol24h": {
+      "sells": 0,
+      "buys": 0
+    },
+    "vol7d": {
+      "sells": 0,
+      "buys": 146253102
+    }
+  }
+}

@@ -1,0 +1,47 @@
+name: Bug report
+description: Something the CLI does wrong
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. **Before you paste output, redact any API key,
+        account id, balances, or addresses** — this is a public repo.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `lofty --version`
+      placeholder: "lofty 0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS / arch
+      placeholder: "macOS 15 arm64 / Ubuntu 24.04 x86_64"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The command you ran (redacted) and what it did vs. what you expected.
+      placeholder: |
+        $ lofty rewards programs --json
+        <redacted output / error>
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: redacted
+    attributes:
+      label: Confirmation
+      options:
+        - label: I have removed any API key, account id, balances, and addresses from this report.
+          required: true
