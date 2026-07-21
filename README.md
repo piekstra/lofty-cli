@@ -21,7 +21,7 @@ cleanly in scripts and agents.
 ## Install
 
 ```console
-# from source (Rust 1.82+)
+# from source (Rust 1.85+)
 $ cargo install --git https://github.com/piekstra/lofty-cli --locked
 
 # or clone + build
