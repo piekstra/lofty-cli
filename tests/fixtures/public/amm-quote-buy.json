@@ -1,0 +1,10 @@
+{
+  "poolId": 9000000000010001,
+  "side": "buy",
+  "tokenAmount": 1,
+  "usdcAmount": 39.996694,
+  "usdcPerToken": 39.996694,
+  "referencePrice": 39.996694,
+  "slippage": 0,
+  "priceImpact": 0
+}

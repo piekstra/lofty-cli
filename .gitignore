@@ -1,0 +1,14 @@
+# Rust build artifacts
+/target
+**/*.rs.bk
+
+# Local env / editor
+.env
+.DS_Store
+.idea/
+.vscode/
+
+# Credentials must never be committed — the API key lives only in the OS keychain
+*.pem
+*.key
+secrets.*

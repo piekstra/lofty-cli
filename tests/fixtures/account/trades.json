@@ -1,0 +1,28 @@
+{
+  "trades": [
+    {
+      "tradeId": "01SAMPLETRADE0000000000001",
+      "propertyId": "01SAMPLEPROP00000000000001",
+      "price": 50.0,
+      "quantity": 2,
+      "paymentCurrency": "usdc",
+      "buyerFeeAmount": 0.5,
+      "sellerFeeAmount": 0.5,
+      "blockchainSwapTxnId": "TXNSAMPLE0000000000000000000000000000000000000000000",
+      "createdAt": 1748144834419,
+      "direction": "buy"
+    },
+    {
+      "tradeId": "01SAMPLETRADE0000000000002",
+      "propertyId": "01SAMPLEPROP00000000000003",
+      "price": 50.0,
+      "quantity": 2,
+      "paymentCurrency": "usdc",
+      "buyerFeeAmount": 0.5,
+      "sellerFeeAmount": 0.5,
+      "blockchainSwapTxnId": "TXNSAMPLE0000000000000000000000000000000000000000000",
+      "createdAt": 1724794834457,
+      "direction": "buy"
+    }
+  ]
+}

@@ -1,0 +1,91 @@
+{
+  "propertyId": "01JVN5GDS9SKZHJ4F13VQM10JE",
+  "recentTrades": [
+    {
+      "type": "buy",
+      "subtype": "liquidity",
+      "price": 38.59,
+      "quantity": 20,
+      "paymentCurrency": "USDC",
+      "blockchainTxnId": "group:synthetic",
+      "createdAt": 1778029222763
+    },
+    {
+      "type": "buy",
+      "subtype": "partial-tokenization-initial-issue",
+      "price": 49.03486924034869,
+      "quantity": 156,
+      "paymentCurrency": "usd",
+      "blockchainTxnId": "M6VNGGWXFSFCAFD7C3TTPVSSD5IQHDECKKGJPWVCRSN53H6EOFBA",
+      "createdAt": 1748996452696
+    },
+    {
+      "type": "buy",
+      "subtype": "partial-tokenization-initial-issue",
+      "price": 49.03486924034869,
+      "quantity": 471,
+      "paymentCurrency": "usd",
+      "blockchainTxnId": "HUUZY4XHI7FFGRB2W6F7WD4DR65LOBSNXECDEEGEQ5V52ID2OGCQ",
+      "createdAt": 1748996448993
+    },
+    {
+      "type": "buy",
+      "subtype": "partial-tokenization-initial-issue",
+      "price": 49.03486924034869,
+      "quantity": 11,
+      "paymentCurrency": "usd",
+      "blockchainTxnId": "OIMKF3OGFKICG4KQDUYZ5ZEFHRNLOW2OAC6BK2Y2CZ3WDUVCR35A",
+      "createdAt": 1748996441197
+    },
+    {
+      "type": "sell",
+      "subtype": "liquidity",
+      "price": 74.05,
+      "quantity": 20,
+      "paymentCurrency": "USDC",
+      "blockchainTxnId": "group:BaAaKiqchccwDoU7vbLpE1SlNRa3LSdW+nhibegsyRE=",
+      "createdAt": 1772917936000
+    },
+    {
+      "type": "buy",
+      "subtype": "partial-tokenization-initial-issue",
+      "price": 49.03486924034869,
+      "quantity": 45,
+      "paymentCurrency": "usd",
+      "blockchainTxnId": "4ZO7VDRBAA4UJFJTGW4NEZSLG3ACC2EGRUJW63HZ6OQX7FYBQA6A",
+      "createdAt": 1748996455924
+    },
+    {
+      "type": "buy",
+      "subtype": "partial-tokenization-initial-issue",
+      "price": 49.03486924034869,
+      "quantity": 11,
+      "paymentCurrency": "usd",
+      "blockchainTxnId": "6ZPAGFUISA7MYSAEGKYCSJ2EXZ6UPF2L24YGG6XYALEDWE2TSG7Q",
+      "createdAt": 1748996463493
+    },
+    {
+      "type": "buy",
+      "subtype": "partial-tokenization-initial-issue",
+      "price": 49.03486924034869,
+      "quantity": 125,
+      "paymentCurrency": "usd",
+      "blockchainTxnId": "7R7CNXTATI62OPUD43KL7UKTBNQFEM7N2JQ4SNSULQGDVZ5OAZOQ",
+      "createdAt": 1748996458964
+    },
+    {
+      "type": "buy",
+      "subtype": "partial-tokenization-initial-issue",
+      "price": 49.03486924034869,
+      "quantity": 787,
+      "paymentCurrency": "usd",
+      "blockchainTxnId": "UDMZ7WS7PHFYNYZE2IQHZJJW256JQZHJL32EZ44KMAM565HF7OTA",
+      "createdAt": 1748996445019
+    }
+  ],
+  "bestBid": 38.590016,
+  "bestAsk": 37.551099,
+  "limitTokensAvailable": 0,
+  "marketTokensAvailable": 145,
+  "totalInvestors": 7
+}

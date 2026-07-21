@@ -1,0 +1,148 @@
+{
+  "pools": [
+    {
+      "poolId": 9000000000010001,
+      "propertyId": "01G4XPM2EVX59KGVACEC12K7V7",
+      "active": true,
+      "price": 38.703965,
+      "priceHigh": 39.996694,
+      "priceLow": 38.703965,
+      "fees": {
+        "lp": 2.5,
+        "platformBuy": 5,
+        "platformSell": 2.5,
+        "operatingReserve": 0
+      },
+      "liquidity": {
+        "base": 323000000,
+        "quote": 718384972,
+        "baseUSD": 12918932162,
+        "quoteUSD": 718384972
+      },
+      "assets": {
+        "base": {
+          "id": 768368477,
+          "symbol": "LFTY0146",
+          "name": "Lofty 703 23rd Ave"
+        },
+        "quote": {
+          "id": 31566704,
+          "symbol": "USDC",
+          "name": "USDC"
+        }
+      },
+      "apy7d": {
+        "quote": 12.020265531295529,
+        "base": 1.6088052848536358
+      },
+      "apy30d": {
+        "quote": 10.639255604221095,
+        "base": 1.4673783031012
+      },
+      "vol24h": {
+        "sells": 0,
+        "buys": 0
+      },
+      "vol7d": {
+        "sells": 0,
+        "buys": 146253102
+      }
+    },
+    {
+      "poolId": 9000000000020001,
+      "propertyId": "01G4BMJE4911TXDAHY873G33ZZ",
+      "active": true,
+      "price": 47.774432,
+      "priceHigh": 48.563274,
+      "priceLow": 47.774432,
+      "fees": {
+        "lp": 2.5,
+        "platformBuy": 5,
+        "platformSell": 2.5,
+        "operatingReserve": 0
+      },
+      "liquidity": {
+        "base": 398000000,
+        "quote": 852524187,
+        "baseUSD": 19328183052,
+        "quoteUSD": 852524187
+      },
+      "assets": {
+        "base": {
+          "id": 760111092,
+          "symbol": "LFTY0144",
+          "name": "Lofty 3427 Sturdevant St"
+        },
+        "quote": {
+          "id": 31566704,
+          "symbol": "USDC",
+          "name": "USDC"
+        }
+      },
+      "apy7d": {
+        "quote": 0,
+        "base": 0
+      },
+      "apy30d": {
+        "quote": 0,
+        "base": 0
+      },
+      "vol24h": {
+        "sells": 0,
+        "buys": 0
+      },
+      "vol7d": {
+        "sells": 0,
+        "buys": 0
+      }
+    },
+    {
+      "poolId": 9000000000030001,
+      "propertyId": "01F3NMA3R3E9QMGJKJ2TF4A6HK",
+      "active": true,
+      "price": 45.806181,
+      "priceHigh": 46.173252,
+      "priceLow": 45.806181,
+      "fees": {
+        "lp": 2.5,
+        "platformBuy": 5,
+        "platformSell": 2.5,
+        "operatingReserve": 0
+      },
+      "liquidity": {
+        "base": 258000000,
+        "quote": 3462632929,
+        "baseUSD": 11912699016,
+        "quoteUSD": 3462632929
+      },
+      "assets": {
+        "base": {
+          "id": 237913743,
+          "symbol": "LFTY0001",
+          "name": "Lofty 917 Pawnee LFTY0001"
+        },
+        "quote": {
+          "id": 31566704,
+          "symbol": "USDC",
+          "name": "USDC"
+        }
+      },
+      "apy7d": {
+        "quote": 0,
+        "base": 3.2704648180635676
+      },
+      "apy30d": {
+        "quote": 17.36694492865631,
+        "base": 2.410850388232113
+      },
+      "vol24h": {
+        "sells": 0,
+        "buys": 91239503
+      },
+      "vol7d": {
+        "sells": 0,
+        "buys": 225244733
+      }
+    }
+  ]
+}

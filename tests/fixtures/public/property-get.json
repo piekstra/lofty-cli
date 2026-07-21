@@ -1,0 +1,150 @@
+{
+  "property": {
+    "neighborhoodScore": "",
+    "maintenance_reserve": 0,
+    "is_delinquent": false,
+    "description": "3-bedroom, 1-bath home with strong value-add potential in a growing rental market, including a 2016 addition that expands it beyond its official 2-bedroom listing. The current owner plans exterior upgrades, including roof completion and a full repaint, with an estimated ~$20K increase in value. Situated on a 7,200 sq. ft. lot with 1,037 sq. ft. of interior space, the property is within walking distance of downtown and under a mile from Tiffin University. It is currently tenant-occupied on a 1-year lease (01/01/2025\u201312/31/2025) at $900/month with a $900 security deposit.",
+    "isSellerBuyBack": false,
+    "timeline_offering_complete": "TBD",
+    "curr_maintenance_reserve": 487.5,
+    "capitalize_fees": false,
+    "or_replenishment": 0,
+    "reserveOwnerRent": false,
+    "custom_occupancy": "",
+    "closing_costs": 1000,
+    "participant_app_id": 2744335378,
+    "address": "62 Liberty St, Tiffin, OH 44883",
+    "sellout_date": 1749582221974,
+    "images": [
+      "https://images.lofty.ai/images/01JVN5GDS9SKZHJ4F13VQM10JE/01JWW85HYSPNRR21GKRFCJWHPP.webp",
+      "https://images.lofty.ai/images/01JVN5GDS9SKZHJ4F13VQM10JE/01JWW85HYSAKR3QK405HFPW20R.webp",
+      "https://images.lofty.ai/images/01JVN5GDS9SKZHJ4F13VQM10JE/01JWW85HYSGT5KZC8K9HR129S2.webp",
+      "https://images.lofty.ai/images/01JVN5GDS9SKZHJ4F13VQM10JE/01JWW85HYSHPHQP6YE67JPC2A5.webp",
+      "https://images.lofty.ai/images/01JVN5GDS9SKZHJ4F13VQM10JE/01JWW85HYSP5ZP05B2BHJXMYNH.webp",
+      "https://images.lofty.ai/images/01JVN5GDS9SKZHJ4F13VQM10JE/01JWW85HYSB7DAP2C4F6SZBN4Q.webp",
+      "https://images.lofty.ai/images/01JVN5GDS9SKZHJ4F13VQM10JE/01JWW85HYS64DWEVFE4N8J1THB.webp"
+    ],
+    "cash_flow": 1693.32,
+    "documents": [
+      {
+        "title": "Documents",
+        "targetUrl": "https://example.com/property-documents"
+      }
+    ],
+    "partialOwned": true,
+    "dataType": "PROPERTY",
+    "market": "tiffin",
+    "tokens": 1606,
+    "updates": "",
+    "taxes": 2188.68,
+    "zipcode": "44883",
+    "total_investment": 80300,
+    "property_type": "single family",
+    "num_sold": 1606,
+    "numIssued": 1606,
+    "lease_begins_date": 0,
+    "assetUnit": "LFTY0466",
+    "updatedAt": 1781388016893,
+    "monthly_loan_repayment": 0,
+    "insurance": 3360,
+    "hideMkt": false,
+    "ownerId": "01J8PW57E94GM8SB2D2Y6ASG77",
+    "year_built": 2025,
+    "assetName": "Lofty 62 Liberty St",
+    "coc": 2.11,
+    "listing_fee": 0,
+    "monthly_rent": 740,
+    "sqft": 1169,
+    "thumbnail": "https://images.lofty.ai/images/01JVN5GDS9SKZHJ4F13VQM10JE/thumb.webp",
+    "appreciation": 0.9,
+    "irr": 3.01,
+    "original_starting_date": 1747688371939,
+    "management_fees": 888,
+    "assetId": 3006797838,
+    "original_sellout_date": 1695673990891,
+    "utilities_water_sewer": 0,
+    "closing_date": 2556032400000,
+    "starting_date": 1747688371939,
+    "city": "Tiffin",
+    "projected_annual_cash_flow": 5821.36,
+    "llc_admin_fee_upfront": 550,
+    "sale_price": 78750,
+    "state": "OH",
+    "baths": 1,
+    "cap_rate": 9.44,
+    "id": "01JVN5GDS9SKZHJ4F13VQM10JE",
+    "beds": 2,
+    "dao_app_id": 2744335320,
+    "ownerRent": false,
+    "isOwnerOccupied": false,
+    "utilities": 0,
+    "current_loan": 0,
+    "is_occupied": true,
+    "createdAt": 1747688617722,
+    "llc_admin_fee_yearly": 750,
+    "city_transfer_tax": 0,
+    "slug": "62-Liberty-St_Tiffin-OH-44883",
+    "featured": "true",
+    "lng": -83.17324,
+    "lat": 41.11726,
+    "assetCreator": "LOFTYRITC3QUX6TVQBGT3BARKWAZDEB2TTJWYQMH6YITKNH7IOMWRLC7SA",
+    "address_line2": "Tiffin, OH 44883",
+    "managerId": "01J8PW57E94GM8SB2D2Y6ASG77",
+    "hide_details": false,
+    "address_line1": "62 Liberty St",
+    "available_date": 1747688371939,
+    "is_deposit_made": false,
+    "reserveOwnerId": "01H7E4X9W3NWMCWD0TQWZH6K9P",
+    "vacancy_reserve": 0,
+    "avmHistory": {
+      "sales": [],
+      "prices": [],
+      "trend": [],
+      "latest": null,
+      "overall": null
+    },
+    "total_fees": 1550,
+    "projected_rental_yield": 7.25,
+    "projected_annual_return": 8.15,
+    "trading": {
+      "cacheTime": 1784024870271,
+      "buyOrderTokens": 40,
+      "sellOrderTokens": 0,
+      "buy": {
+        "min": 37.55,
+        "max": 37.55
+      },
+      "sell": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    "liquidity": {
+      "poolId": 9000000001620001,
+      "marketPrice": {
+        "priceLow": 37.551099,
+        "priceHigh": 38.590016
+      },
+      "stats": {
+        "apy7d": {
+          "quote": 0,
+          "base": 0
+        },
+        "vol24h": {
+          "sells": 0,
+          "buys": 0
+        },
+        "vol7d": {
+          "sells": 0,
+          "buys": 0
+        }
+      },
+      "mtSellFeePct": 0.035,
+      "mtBuyFeePct": 0.03,
+      "lpFeePct": 0.02,
+      "orFeePct": 0,
+      "baseStaked": 125,
+      "quoteStaked": 2500110500
+    }
+  }
+}

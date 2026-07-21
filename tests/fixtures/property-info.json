@@ -1,0 +1,148 @@
+{
+  "success": true,
+  "status": "ok",
+  "message": "success",
+  "data": {
+    "transactions": [
+      {
+        "status": "completed",
+        "paymentCurrency": "usdc",
+        "sellOrderCreatedAt": 1782490042625,
+        "usedExchangeRate": 10000,
+        "exchangeRateDecimals": 6,
+        "swappedAmount": 50000000,
+        "quantity": 1,
+        "propertyId": "01K1VKTF50B18YPKEKKMNT988E",
+        "createdAt": 1784023563278,
+        "price": 50,
+        "id": "01KXG1EF0E06ZA07TYE7XBMF7D",
+        "buyOrderCreatedAt": 1784023498486,
+        "updatedAt": 1784023563278
+      },
+      {
+        "status": "completed",
+        "paymentCurrency": "usdc",
+        "sellOrderCreatedAt": 1782490042625,
+        "usedExchangeRate": 10000,
+        "exchangeRateDecimals": 6,
+        "swappedAmount": 50000000,
+        "quantity": 1,
+        "propertyId": "01K1VKTF50B18YPKEKKMNT988E",
+        "createdAt": 1783915035774,
+        "price": 50,
+        "id": "01KXCSYF3YJ4Z8PJYWXBJWA929",
+        "buyOrderCreatedAt": 1783914969129,
+        "updatedAt": 1783915035774
+      },
+      {
+        "status": "completed",
+        "paymentCurrency": "usdc",
+        "sellOrderCreatedAt": 1782490042625,
+        "usedExchangeRate": 10000,
+        "exchangeRateDecimals": 6,
+        "swappedAmount": 50000000,
+        "quantity": 1,
+        "propertyId": "01K1VKTF50B18YPKEKKMNT988E",
+        "createdAt": 1783894983587,
+        "price": 50,
+        "id": "01KXC6TGX4C64QMA97GVKG3QWX",
+        "buyOrderCreatedAt": 1783894917836,
+        "updatedAt": 1783894983587
+      },
+      {
+        "status": "completed",
+        "paymentCurrency": "usdc",
+        "sellOrderCreatedAt": 1782490042625,
+        "usedExchangeRate": 10000,
+        "exchangeRateDecimals": 6,
+        "swappedAmount": 100000000,
+        "quantity": 2,
+        "propertyId": "01K1VKTF50B18YPKEKKMNT988E",
+        "createdAt": 1783803371418,
+        "price": 50,
+        "id": "01KX9FEQWT4F2A7MGRPPRP0C33",
+        "buyOrderCreatedAt": 1783803307183,
+        "updatedAt": 1783803371418
+      },
+      {
+        "status": "completed",
+        "paymentCurrency": "usdc",
+        "sellOrderCreatedAt": 1782490042625,
+        "usedExchangeRate": 10000,
+        "exchangeRateDecimals": 6,
+        "swappedAmount": 50000000,
+        "quantity": 1,
+        "propertyId": "01K1VKTF50B18YPKEKKMNT988E",
+        "createdAt": 1783793931685,
+        "price": 50,
+        "id": "01KX96END5NXKAXQ1A998PC8JR",
+        "buyOrderCreatedAt": 1783793870081,
+        "updatedAt": 1783793931685
+      },
+      {
+        "status": "completed",
+        "paymentCurrency": "usdc",
+        "sellOrderCreatedAt": 1782490042625,
+        "usedExchangeRate": 10000,
+        "exchangeRateDecimals": 6,
+        "swappedAmount": 50000000,
+        "quantity": 1,
+        "propertyId": "01K1VKTF50B18YPKEKKMNT988E",
+        "createdAt": 1783788408248,
+        "price": 50,
+        "id": "01KX9163DRDD94NP62SBDJYB9S",
+        "buyOrderCreatedAt": 1783788342047,
+        "updatedAt": 1783788408248
+      },
+      {
+        "status": "completed",
+        "paymentCurrency": "usdc",
+        "sellOrderCreatedAt": 1782490042625,
+        "usedExchangeRate": 10000,
+        "exchangeRateDecimals": 6,
+        "swappedAmount": 50000000,
+        "quantity": 1,
+        "propertyId": "01K1VKTF50B18YPKEKKMNT988E",
+        "createdAt": 1783784256213,
+        "price": 50,
+        "id": "01KX8X7CPNS6C4D7Y8ZRA7C6Z6",
+        "buyOrderCreatedAt": 1783784191328,
+        "updatedAt": 1783784256213
+      },
+      {
+        "status": "completed",
+        "paymentCurrency": "usdc",
+        "sellOrderCreatedAt": 1782490042625,
+        "usedExchangeRate": 10000,
+        "exchangeRateDecimals": 6,
+        "swappedAmount": 100000000,
+        "quantity": 2,
+        "propertyId": "01K1VKTF50B18YPKEKKMNT988E",
+        "createdAt": 1783778323293,
+        "price": 50,
+        "id": "01KX8QJATXQ7PTR1MAVCRXRN27",
+        "buyOrderCreatedAt": 1783778256979,
+        "updatedAt": 1783778323293
+      }
+    ],
+    "ranges": {
+      "period": {
+        "min": 1,
+        "max": 50
+      },
+      "allTime": {
+        "min": 1,
+        "max": 50
+      }
+    },
+    "lastPrice": 50,
+    "tradeVolume": 6520.13,
+    "secondaryEnabled": true,
+    "coc": 6.4,
+    "capRate": 3.93,
+    "projectedCoc": 6.4,
+    "projectedCapRate": 3.93,
+    "limitTokensAvailable": 14941
+  },
+  "meta": {}
+}

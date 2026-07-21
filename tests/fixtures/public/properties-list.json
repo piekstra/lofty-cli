@@ -1,0 +1,222 @@
+{
+  "page": 1,
+  "pageSize": 20,
+  "filters": {
+    "location": "all",
+    "propertyType": "all",
+    "listingFilter": "all",
+    "minPry": 0,
+    "minPan": 0
+  },
+  "result": {
+    "properties": [
+      {
+        "id": "01JVN5GDS9SKZHJ4F13VQM10JE",
+        "slug": "62-Liberty-St_Tiffin-OH-44883",
+        "property_type": "single family",
+        "createdAt": 1747688617722,
+        "updatedAt": 1784105763745,
+        "address_line1": "62 Liberty St",
+        "address_line2": "Tiffin, OH 44883",
+        "city": "Tiffin",
+        "state": "OH",
+        "zipcode": "44883",
+        "market": "tiffin",
+        "lat": 41.11726,
+        "lng": -83.17324,
+        "beds": 2,
+        "baths": 1,
+        "sqft": 1169,
+        "year_built": 2025,
+        "is_occupied": true,
+        "description": "3-bedroom, 1-bath home with strong value-add potential in a growing rental market, including a 2016 addition that expands it beyond its official 2-bedroom listing. The current owner plans exterior upgrades, including roof completion and a full repaint, with an estimated ~$20K increase in value. Situated on a 7,200 sq. ft. lot with 1,037 sq. ft. of interior space, the property is within walking distance of downtown and under a mile from Tiffin University. It is currently tenant-occupied on a 1-year lease (01/01/2025\u201312/31/2025) at $900/month with a $900 security deposit.",
+        "images": [
+          "https://images.lofty.ai/images/01JVN5GDS9SKZHJ4F13VQM10JE/01JWW85HYSPNRR21GKRFCJWHPP.webp",
+          "https://images.lofty.ai/images/01JVN5GDS9SKZHJ4F13VQM10JE/01JWW85HYSAKR3QK405HFPW20R.webp",
+          "https://images.lofty.ai/images/01JVN5GDS9SKZHJ4F13VQM10JE/01JWW85HYSGT5KZC8K9HR129S2.webp",
+          "https://images.lofty.ai/images/01JVN5GDS9SKZHJ4F13VQM10JE/01JWW85HYSHPHQP6YE67JPC2A5.webp",
+          "https://images.lofty.ai/images/01JVN5GDS9SKZHJ4F13VQM10JE/01JWW85HYSP5ZP05B2BHJXMYNH.webp",
+          "https://images.lofty.ai/images/01JVN5GDS9SKZHJ4F13VQM10JE/01JWW85HYSB7DAP2C4F6SZBN4Q.webp",
+          "https://images.lofty.ai/images/01JVN5GDS9SKZHJ4F13VQM10JE/01JWW85HYS64DWEVFE4N8J1THB.webp"
+        ],
+        "thumbnail": "https://images.lofty.ai/images/01JVN5GDS9SKZHJ4F13VQM10JE/thumb.webp",
+        "tokens": 1606,
+        "numIssued": 1606,
+        "num_sold": 1606,
+        "total_investment": 80300,
+        "sale_price": 78750,
+        "current_loan": 0,
+        "monthly_loan_repayment": 0,
+        "closing_costs": 1000,
+        "city_transfer_tax": 0,
+        "llc_admin_fee_upfront": 550,
+        "curr_maintenance_reserve": 487.5,
+        "monthly_rent": 1485,
+        "taxes": 2188.68,
+        "insurance": 1188,
+        "management_fees": 1782,
+        "utilities": 0,
+        "cap_rate": 9.44,
+        "coc": 14.83,
+        "irr": 15.33,
+        "cash_flow": 11911.32,
+        "appreciation": 0.5,
+        "projected_annual_cash_flow": 5821.36,
+        "projected_rental_yield": 7.25,
+        "projected_annual_return": 7.75,
+        "assetId": 3006797838,
+        "assetUnit": "LFTY0466",
+        "assetName": "Lofty 62 Liberty St",
+        "trading": {
+          "buyOrderTokens": 40,
+          "sellOrderTokens": 0,
+          "buy": {
+            "min": 37.55,
+            "max": 37.55
+          },
+          "sell": {
+            "min": 0,
+            "max": 0
+          }
+        },
+        "liquidity": {
+          "poolId": 9000000001620001,
+          "marketPrice": {
+            "priceLow": 38.573922,
+            "priceHigh": 39.563621
+          },
+          "stats": {
+            "apy7d": {
+              "quote": 0,
+              "base": 0.8346350924533126
+            },
+            "vol24h": {
+              "sells": 0,
+              "buys": 38590016
+            },
+            "vol7d": {
+              "sells": 0,
+              "buys": 38590016
+            }
+          },
+          "mtSellFeePct": 0.035,
+          "mtBuyFeePct": 0.03,
+          "lpFeePct": 0.02,
+          "orFeePct": 0,
+          "baseStaked": 125,
+          "quoteStaked": 2500110500
+        },
+        "available_date": 1747688371939,
+        "sellout_date": 1749582221974,
+        "closing_date": 2556032400000
+      },
+      {
+        "id": "01JV36MV51N74VJJKTWGN8ASGX",
+        "slug": "51-St-Clair-St_Tiffin-OH-44883",
+        "property_type": "single family",
+        "createdAt": 1747085602620,
+        "updatedAt": 1784066416456,
+        "address_line1": "51 St Clair St",
+        "address_line2": "Tiffin, OH 44883",
+        "city": "Tiffin",
+        "state": "OH",
+        "zipcode": "44883",
+        "market": "tiffin",
+        "lat": 41.11264,
+        "lng": -83.18122,
+        "beds": 3,
+        "baths": 1,
+        "sqft": 1471,
+        "year_built": 2025,
+        "is_occupied": true,
+        "description": "Two-story home built in 1893 with 1,333 sq ft of living space on a 10,798 sq ft lot. The property includes 3 bedrooms and 1.5 bathrooms, with updates including a new water heater (2022), dishwasher (2021), and laminate flooring on the main level and one bedroom (2021). Additional features include off-street parking, a partial basement, and a partially fenced backyard. The property is currently leased month-to-month at $1,000/month with a $1,000 security deposit. The current tenant previously held a 1-year lease from 11/02/2023 to 11/01/2024.",
+        "images": [
+          "https://images.lofty.ai/images/01JV36MV51N74VJJKTWGN8ASGX/01JVDFAKB4ZNAHG8H67H91T0NP.webp",
+          "https://images.lofty.ai/images/01JV36MV51N74VJJKTWGN8ASGX/01JVDFAKB4TXFN8ZKD46KHGNDQ.webp",
+          "https://images.lofty.ai/images/01JV36MV51N74VJJKTWGN8ASGX/01JVDFAKB4JCW7CVWGQNNZ39TT.webp",
+          "https://images.lofty.ai/images/01JV36MV51N74VJJKTWGN8ASGX/01JVDFAKB40K6QXX4E7Q8DD9Q7.webp",
+          "https://images.lofty.ai/images/01JV36MV51N74VJJKTWGN8ASGX/01JVDFAKB4M1M7DC1RRWKGCCDA.webp",
+          "https://images.lofty.ai/images/01JV36MV51N74VJJKTWGN8ASGX/01JVDFAKB4642BD1KKKG0G8XD9.webp",
+          "https://images.lofty.ai/images/01JV36MV51N74VJJKTWGN8ASGX/01JVDFAKB4K0Z63HK86WA3VWN8.webp",
+          "https://images.lofty.ai/images/01JV36MV51N74VJJKTWGN8ASGX/01JVDFAKB4P54BH9P38GX2RW1V.webp",
+          "https://images.lofty.ai/images/01JV36MV51N74VJJKTWGN8ASGX/01JVDFAKB4V0G4YPM8XR8QKGTS.webp",
+          "https://images.lofty.ai/images/01JV36MV51N74VJJKTWGN8ASGX/01JVDFAKB4YP0QPG2BMM59B7E3.webp",
+          "https://images.lofty.ai/images/01JV36MV51N74VJJKTWGN8ASGX/01JVDFAKB4R8V7342PTMFYASBV.webp"
+        ],
+        "thumbnail": "https://images.lofty.ai/images/01JV36MV51N74VJJKTWGN8ASGX/thumb.webp",
+        "tokens": 2745,
+        "numIssued": 2745,
+        "num_sold": 2745,
+        "total_investment": 137250,
+        "sale_price": 135000,
+        "current_loan": 0,
+        "monthly_loan_repayment": 0,
+        "closing_costs": 1600,
+        "city_transfer_tax": 0,
+        "llc_admin_fee_upfront": 650,
+        "curr_maintenance_reserve": 640,
+        "monthly_rent": 800,
+        "taxes": 2192.04,
+        "insurance": 1428,
+        "management_fees": 960,
+        "utilities": 0,
+        "cap_rate": 5.09,
+        "coc": 3.11,
+        "irr": 4.01,
+        "cash_flow": 4269.96,
+        "appreciation": 0.9,
+        "projected_annual_cash_flow": 6897.93,
+        "projected_rental_yield": 5.03,
+        "projected_annual_return": 5.93,
+        "assetId": 2991847207,
+        "assetUnit": "LFTY0446",
+        "assetName": "Lofty 51 St Clair St",
+        "liquidity": {
+          "poolId": 9000000001630001,
+          "marketPrice": {
+            "priceLow": 39.242955,
+            "priceHigh": 40.171295
+          },
+          "stats": {
+            "apy7d": {
+              "quote": 0,
+              "base": 0
+            },
+            "vol24h": {
+              "sells": 0,
+              "buys": 0
+            },
+            "vol7d": {
+              "sells": 0,
+              "buys": 0
+            }
+          },
+          "mtSellFeePct": 0.035,
+          "mtBuyFeePct": 0.03,
+          "lpFeePct": 0.02,
+          "orFeePct": 0,
+          "baseStaked": 238,
+          "quoteStaked": 2500220500
+        },
+        "available_date": 1747085585569,
+        "sellout_date": 1747259079898,
+        "closing_date": 2556032400000
+      }
+    ],
+    "meta": {
+      "cacheHit": true,
+      "page": 1,
+      "pageSize": 20,
+      "next": 2,
+      "count": 20,
+      "propertiesMeta": {
+        "hasNew": true,
+        "hasUpcoming": true,
+        "minPry": 0,
+        "maxPry": 33,
+        "minPan": 0,
+        "maxPan": 37
+      }
+    }
+  }
+}

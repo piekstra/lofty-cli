@@ -1,0 +1,25 @@
+name: Feature request
+description: A new command, flag, or capability
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The use case, not just the proposed solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed command / behavior
+      placeholder: "e.g. `lofty orders watch <ID>` streams fills as they land"
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Relevant API endpoints, `--json` shape ideas, alternatives considered.
+    validations:
+      required: false
