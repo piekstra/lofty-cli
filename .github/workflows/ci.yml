@@ -27,6 +27,11 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - name: linux deps
+        # dbus dev headers for the secret-service keyring backend (Linux only;
+        # macOS uses the native Keychain and needs nothing extra).
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - name: fmt
         run: cargo fmt --all -- --check
       - name: clippy
@@ -52,4 +57,6 @@ jobs:
         with:
           toolchain: ${{ steps.msrv.outputs.v }}
       - uses: Swatinem/rust-cache@v2
+      - name: linux deps
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - run: cargo build --locked
