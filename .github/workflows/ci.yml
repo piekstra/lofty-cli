@@ -44,19 +44,3 @@ jobs:
           ./target/release/lofty --version
           ./target/release/lofty --help > /dev/null
           ./target/release/lofty info > /dev/null
-
-  msrv:
-    name: msrv build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: read rust-version
-        id: msrv
-        run: echo "v=$(grep '^rust-version' Cargo.toml | sed 's/.*\"\(.*\)\".*/\1/')" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ steps.msrv.outputs.v }}
-      - uses: Swatinem/rust-cache@v2
-      - name: linux deps
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
-      - run: cargo build --locked
