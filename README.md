@@ -54,6 +54,7 @@ $ lofty properties orderbook <ID>       # live bids/asks
 $ lofty properties trades <ID>          # recent fills + best bid/ask
 $ lofty rewards programs                # LP-reward programs and their terms
 $ lofty rewards history --since <ms>    # your reward payouts
+$ lofty rewards reconcile               # audit payouts: totals, math check, gap detection
 $ lofty account balance|positions|trades
 $ lofty orders list|get|create|cancel   # mutations confirm, or --force
 $ lofty amm pools|quote|swap            # swap needs --max-usdc / --min-usdc
@@ -83,6 +84,22 @@ $ lofty --json rewards programs | jq '.programs[0]'
   "minOrderAgeMs": 3000,
   "minTwoSidedLiquidity": 1
 }
+```
+
+### Example — reconcile your payouts
+
+`reconcile` pulls your full payout history and checks it: per-property totals,
+an internal-consistency check (`MISMATCH` counts payouts where the amount ≠
+`percentOfPool × pool-per-block` — a nonzero value is worth reporting to Lofty),
+and `GAPS` (payout periods that got nothing mid-streak — candidate misses to
+investigate; some are legitimate ineligibility). Numbers below are illustrative.
+
+```console
+$ lofty rewards reconcile
+AVG%POOL | EARNED  | GAPS | MISMATCH | PAYOUTS | PROPERTY
+20.0     | $3.5000 | 1    | 0        | 48      | Sample City, ST 00000
+total: $3.5000 across 48 payout(s); 1 gap period(s)
+  ⚠ Sample City, ST 00000: 1 period(s) with no payout — verify eligibility: 2026-01-02 13:00 UTC
 ```
 
 ## JSON, exit codes, limits
