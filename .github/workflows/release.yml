@@ -1,24 +1,50 @@
 name: Release
 
-# Tag a version to cut a release:  git tag v0.1.0 && git push origin v0.1.0
-# Builds per-platform binaries and publishes them as `lofty-<target>.tar.gz`,
-# which is exactly the asset name `lofty self-update` looks for on the latest
-# release.
+# Automatic releases. On every push to `main`, if the version in Cargo.toml has
+# no matching `v<version>` git tag yet, this builds per-platform binaries and
+# publishes a release (creating the tag at the merge commit). So cutting a
+# release is just: bump `version` in Cargo.toml and merge — no manual tagging.
+# Can also be run by hand from the Actions tab (workflow_dispatch).
 #
-# aarch64 Linux is intentionally omitted for now: the secret-service keyring
-# backend links libdbus, which is awkward to cross-compile without `cross`.
-# Those users can `cargo install --git …` until a cross-based target is added.
+# Assets are `lofty-<target>.tar.gz`, exactly the name `lofty self-update` looks
+# for on the latest release. aarch64 Linux is intentionally omitted: the
+# secret-service keyring backend links libdbus, awkward to cross-compile.
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
+  check:
+    name: check version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      release: ${{ steps.v.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need tags to tell whether this version already shipped
+      - id: v
+        run: |
+          version=$(sed -nE 's/^version = "(.*)"/\1/p' Cargo.toml | head -1)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git tag -l "v$version" | grep -q .; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "v$version already released — nothing to do." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "Releasing v$version." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   build:
     name: build ${{ matrix.target }}
+    needs: check
+    if: needs.check.outputs.release == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -55,7 +81,8 @@ jobs:
 
   release:
     name: publish release
-    needs: build
+    needs: [check, build]
+    if: needs.check.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -65,7 +92,9 @@ jobs:
       - name: publish
         uses: softprops/action-gh-release@v2
         with:
-          # Non-draft, non-prerelease so `self-update` (releases/latest) finds it.
+          # Create the tag at this commit; non-draft/non-prerelease so
+          # `self-update` (releases/latest) finds it.
+          tag_name: v${{ needs.check.outputs.version }}
           files: dist/*
           generate_release_notes: true
           fail_on_unmatched_files: true
