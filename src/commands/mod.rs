@@ -7,6 +7,7 @@ pub mod api;
 pub mod catalog;
 pub mod orders;
 pub mod properties;
+pub mod quote;
 pub mod rewards;
 
 use pk_cli_core::{output, CliError, CommonArgs};

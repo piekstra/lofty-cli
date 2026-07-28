@@ -60,6 +60,7 @@ $ lofty account balance|positions|trades
 $ lofty account coverage                # what's reserved backing your bids vs free to spend
 $ lofty account breakeven --margin 5    # fee-inclusive sell price (basis hides the buy fee)
 $ lofty orders list|get|create|cancel   # mutations confirm, or --force
+$ lofty quote recenter --property-id <ID> --bid <P>   # move a quote safely (dry run by default)
 $ lofty amm pools|quote|swap            # swap needs --max-usdc / --min-usdc
 $ lofty api GET /public/v1/amm/pools    # raw passthrough (Bearer attached)
 $ lofty api --internal GET /properties/v2/marketplace   # website API (open reads)
@@ -197,6 +198,40 @@ book         | $71.37    | $67.97         | 3.00      | $65.59
 So a $63.68 basis needs **$69.29** just to break even, and **$72.75** to net 5%.
 `--sell-venue amm` prices an exit into the pool instead, `--cost` prices a
 hypothetical position, and `--sell-fee` / `--buy-fee` override the published rates.
+
+### Example — moving a quote without shooting yourself in the foot
+
+`quote recenter` is a **mechanism**, not a strategy: you supply the target prices
+and it performs the move safely. It has no opinion about *where* to quote.
+
+It is a **dry run unless you pass `--execute`** — the dangerous thing needs a
+flag, the safe thing happens when you forget one.
+
+```console
+$ lofty quote recenter --property-id <ID> --bid 61.50
+DRY RUN — nothing sent. mid $62.98, reward band [$60.98, $64.97]
+  cancel buy $62.25 x3
+  create buy $61.50 x3  (1.48 from mid)
+  keep   sell $72.80 x8 (untouched)
+re-run with --execute to apply
+```
+
+Sides you don't give a price for are **left alone**, so re-centering a bid can
+never orphan an earning ask into a non-earning one-sided position. Before sending
+anything it refuses to:
+
+| Rail | Why |
+|------|-----|
+| cross the market | a bid at/above the best ask fills instantly as a **taker** — this command only rests liquidity |
+| exceed your cover | Lofty **auto-cancels** uncovered orders (counting the side left in place) |
+| go below `minContracts` | the order would rest but earn nothing |
+| leave the reward band | same — earns nothing (override with `--allow-out-of-band`) |
+| undercut `--min-ask` | guards a break-even/cost floor against an accidental below-cost sell |
+
+Cancel always precedes the matching create: posting first would double-commit
+capital and can breach per-property coverage, which auto-cancels **both** orders.
+The trade-off is a brief one-sided window (the API has no atomic modify) — if the
+re-post fails, the command says so loudly, because that window earns nothing.
 
 ## JSON, exit codes, limits
 
