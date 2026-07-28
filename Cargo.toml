@@ -1,6 +1,6 @@
 [package]
 name = "lofty-cli"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.88"
 description = "Interact with the Lofty (lofty.ai) fractional real-estate marketplace API — market data, order books, and market-making analysis. Keychain-secured, agent-friendly."
