@@ -56,6 +56,7 @@ $ lofty rewards programs                # LP-reward programs and their terms
 $ lofty rewards history --since <ms>    # your reward payouts
 $ lofty rewards reconcile               # audit payouts: totals, math check, gap detection
 $ lofty account balance|positions|trades
+$ lofty account coverage                # what's reserved backing your bids vs free to spend
 $ lofty orders list|get|create|cancel   # mutations confirm, or --force
 $ lofty amm pools|quote|swap            # swap needs --max-usdc / --min-usdc
 $ lofty api GET /public/v1/amm/pools    # raw passthrough (Bearer attached)
@@ -100,6 +101,40 @@ AVG%POOL | EARNED  | GAPS | MISMATCH | PAYOUTS | PROPERTY
 20.0     | $3.5000 | 1    | 0        | 48      | Sample City, ST 00000
 total: $3.5000 across 48 payout(s); 1 gap period(s)
   ⚠ Sample City, ST 00000: 1 period(s) with no payout — verify eligibility: 2026-01-02 13:00 UTC
+```
+
+### Example — what can I actually spend?
+
+Lofty funds open orders from your live balances: buys need the USDC and sells
+need the shares, *for as long as the order is open*, **across all your open
+orders on a property combined** — and orders your wallet can't cover are
+canceled automatically. The check is **per property, not aggregate**, so several
+properties' bids can lean on the same USDC at once. Two consequences your raw
+balance won't tell you:
+
+- The wallet floor every bid must clear is your **largest single-property bid
+  total** — that much is *reserved*, and only the surplus above it is spendable.
+- The **sum** of your bids can legitimately exceed your wallet while they rest
+  (`overCommitted`) — but one fill spends cash the other properties were also
+  counting on, which can cascade into automatic cancellations.
+
+`coverage` computes both, checks every order against its cover, and with
+`--spend` simulates a purchase to show what it would uncover. Numbers below are
+illustrative.
+
+```console
+$ lofty account coverage
+ASK COVERED | ASK QTY | BID $  | BID COVERED | HELD | PROPERTY
+true        | 4       | 190.00 | true        | 4    | 01SAMPLEPROPERTY000000000A
+true        | 8       | 120.00 | true        | 8    | 01SAMPLEPROPERTY000000000B
+wallet $200.00 — $190.00 reserved (largest single-property bid), $10.00 free to spend
+  note: $310.00 total bid exposure exceeds the wallet — fine while they rest
+  (coverage is per property), but one fill spends cash the others also rely on
+
+$ lofty account coverage --spend 50
+...
+spending $50.00 leaves $150.00 — EXCEEDS free capital
+  ⚠ would uncover 01SAMPLEPROPERTY000000000A (bids $190.00)
 ```
 
 ## JSON, exit codes, limits
