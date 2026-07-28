@@ -26,8 +26,14 @@ Run `make verify` before considering a change done — it's exactly what CI runs
 
 - `src/main.rs` — clap command tree, arg validation, exit-code mapping.
 - `src/commands/*.rs` — one module per top-level command (properties, orders,
-  account, rewards, amm, api, catalog). Each renders a human table and a
+  account, rewards, amm, quote, api, catalog). Each renders a human table and a
   `--json` DTO.
+  - `quote` holds the mutating quote primitives (mechanism only — the caller
+    supplies target prices; the CLI never decides where to quote). They are a
+    **dry run unless `--execute`**, and enforce shared rails before sending:
+    never cross the market, never exceed cover, never go under `minContracts`,
+    stay inside the reward band, and touch only the sides given a price, so one
+    side can never be orphaned into a non-earning position.
 - `src/client.rs` — HTTP against the SDK surface (`/public/v1`) and the internal
   website API (`--internal`, `/prod`).
 - `src/config.rs` — non-secret config; the API key is keychain-only.
