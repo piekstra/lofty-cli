@@ -178,3 +178,59 @@ fn internal_marketplace_fixture_keeps_mm_economics() {
         }
     }
 }
+
+#[test]
+fn account_fixtures_carry_the_fields_coverage_depends_on() {
+    // `account coverage` derives spendable capital from three payloads. If any of
+    // these fields moves, the coverage math silently degrades (a missing numeric
+    // reads as 0), so pin the shapes here rather than discovering it live.
+    let bal = fixture("account/balance.json");
+    assert!(
+        bal.get("usdc").and_then(Value::as_f64).is_some(),
+        "balance missing numeric `usdc`"
+    );
+
+    let orders = fixture("account/orders-list.json");
+    let orders = orders
+        .get("orders")
+        .and_then(Value::as_array)
+        .expect("orders-list missing `orders` array");
+    assert!(!orders.is_empty());
+    for o in orders {
+        for field in ["propertyId", "direction", "status"] {
+            assert!(
+                o.get(field).and_then(Value::as_str).is_some(),
+                "order missing string `{field}`"
+            );
+        }
+        for field in ["price", "quantity"] {
+            assert!(
+                o.get(field).and_then(Value::as_f64).is_some(),
+                "order missing numeric `{field}`"
+            );
+        }
+    }
+    // Coverage keys off these exact direction/status values: only `active` orders
+    // consume cover, bids against USDC and asks against held tokens. All must be
+    // represented or the fixture can't exercise the paths that matter.
+    assert!(orders.iter().any(|o| o["direction"] == "buy"));
+    assert!(orders.iter().any(|o| o["direction"] == "sell"));
+    assert!(orders.iter().any(|o| o["status"] == "active"));
+    assert!(orders.iter().any(|o| o["status"] != "active"));
+
+    let positions = fixture("account/positions.json");
+    let positions = positions
+        .get("positions")
+        .and_then(Value::as_array)
+        .expect("positions missing `positions` array");
+    assert!(!positions.is_empty());
+    for p in positions {
+        assert!(p.get("propertyId").and_then(Value::as_str).is_some());
+        // Asks are covered by tokens actually HELD (`currentTokens`), not by the
+        // free-to-quote `currentEffectiveTokens`, which nets out resting sells.
+        assert!(
+            p.get("currentTokens").and_then(Value::as_f64).is_some(),
+            "position missing numeric `currentTokens`"
+        );
+    }
+}

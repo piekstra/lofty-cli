@@ -32,6 +32,28 @@
       "paymentCurrency": "usdc",
       "createdAt": 1669208729178,
       "expireAt": 1671800722100
+    },
+    {
+      "orderId": "01SAMPLEORDER0000000000004",
+      "propertyId": "01SAMPLEPROP00000000000001",
+      "direction": "buy",
+      "price": 49.81,
+      "quantity": 4,
+      "status": "active",
+      "paymentCurrency": "usdc",
+      "createdAt": 1785000000000,
+      "expireAt": 1787592000000
+    },
+    {
+      "orderId": "01SAMPLEORDER0000000000005",
+      "propertyId": "01SAMPLEPROP00000000000001",
+      "direction": "sell",
+      "price": 52.75,
+      "quantity": 4,
+      "status": "active",
+      "paymentCurrency": "any",
+      "createdAt": 1785000000000,
+      "expireAt": 1787592000000
     }
   ]
 }
