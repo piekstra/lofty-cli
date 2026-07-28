@@ -51,6 +51,73 @@ pub enum Cmd {
         #[arg(long)]
         force: bool,
     },
+    /// Post a fresh two-sided quote on a property.
+    ///
+    /// Refuses to leave you one-sided — one-sided liquidity earns nothing, so if
+    /// either side can't be placed (typically too few tokens to back the ask)
+    /// nothing is sent and the shortfall is reported. It never buys inventory
+    /// for you; acquiring tokens is a separate, explicit `amm swap`.
+    ///
+    /// DRY RUN unless `--execute`.
+    Provision {
+        #[arg(long)]
+        property_id: String,
+        #[arg(long, value_name = "USD")]
+        bid: f64,
+        #[arg(long, value_name = "USD")]
+        ask: f64,
+        /// Tokens per side (default: the program's minContracts).
+        #[arg(long, value_name = "N")]
+        qty: Option<u32>,
+        /// Refuse to place the ask below this price (e.g. your break-even).
+        #[arg(long, value_name = "USD")]
+        min_ask: Option<f64>,
+        /// Actually place the orders. Without this, nothing is sent.
+        #[arg(long)]
+        execute: bool,
+        /// Skip the confirmation prompt (only meaningful with --execute).
+        #[arg(long)]
+        force: bool,
+    },
+    /// Cancel resting reward quotes on a property, keeping deliberate holds.
+    ///
+    /// Use when standing down from a property. `--keep-above` protects orders you
+    /// mean to leave resting — typically a cost-basis recovery ask parked above
+    /// the band — so pulling a quote never cancels the sell that is waiting to
+    /// recover your position.
+    ///
+    /// DRY RUN unless `--execute`.
+    Pull {
+        #[arg(long)]
+        property_id: String,
+        /// Never cancel a SELL at or above this price (protects recovery asks).
+        #[arg(long, value_name = "USD")]
+        keep_above: Option<f64>,
+        /// Limit to one side.
+        #[arg(long, value_name = "SIDE")]
+        side: Option<Side>,
+        /// Actually cancel. Without this, nothing is sent.
+        #[arg(long)]
+        execute: bool,
+        /// Skip the confirmation prompt (only meaningful with --execute).
+        #[arg(long)]
+        force: bool,
+    },
+}
+
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Side {
+    Buy,
+    Sell,
+}
+
+impl Side {
+    fn as_str(self) -> &'static str {
+        match self {
+            Side::Buy => "buy",
+            Side::Sell => "sell",
+        }
+    }
 }
 
 pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
@@ -139,7 +206,7 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
             )?;
 
             if !execute {
-                emit(ctx, "quote-plan", plan, |v| render_plan(v, false));
+                emit(ctx, "quote-plan", plan, |v| render_plan(v, Render::DryRun));
                 return Ok(());
             }
             let steps = plan
@@ -203,11 +270,481 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
                 }
             }
             emit(ctx, "quote-recentered", json!({"applied": done}), |v| {
-                render_plan(v, true)
+                render_plan(v, Render::Applied)
             });
             Ok(())
         }
+
+        Cmd::Provision {
+            property_id,
+            bid,
+            ask,
+            qty,
+            min_ask,
+            execute,
+            force,
+        } => {
+            for (name, v) in [
+                ("--bid", Some(*bid)),
+                ("--ask", Some(*ask)),
+                ("--min-ask", *min_ask),
+            ] {
+                if v.is_some_and(|p| !p.is_finite() || p < 0.01) {
+                    return Err(CliError::Usage(format!("{name} must be at least $0.01")));
+                }
+            }
+            if bid >= ask {
+                return Err(CliError::Usage(format!(
+                    "--bid ${bid:.2} must be below --ask ${ask:.2}"
+                )));
+            }
+            let client = ctx.client()?;
+            let st = fetch_state(&client, property_id)?;
+            let plan = plan_provision(&st, *bid, *ask, *qty, *min_ask)?;
+            apply_or_show(
+                ctx,
+                &client,
+                property_id,
+                plan,
+                *execute,
+                *force,
+                "provision",
+            )
+        }
+
+        Cmd::Pull {
+            property_id,
+            keep_above,
+            side,
+            execute,
+            force,
+        } => {
+            if keep_above.is_some_and(|p| !p.is_finite() || p < 0.0) {
+                return Err(CliError::Usage(
+                    "--keep-above must be a non-negative price".into(),
+                ));
+            }
+            let client = ctx.client()?;
+            let st = fetch_state(&client, property_id)?;
+            let plan = plan_pull(&st, *keep_above, *side)?;
+            apply_or_show(ctx, &client, property_id, plan, *execute, *force, "pull")
+        }
     }
+}
+
+/// Everything a quote primitive needs about one property, in one place.
+struct State {
+    program: Value,
+    mine: Vec<Value>,
+    book: Value,
+    usdc: f64,
+    held: f64,
+}
+
+fn fetch_state(client: &crate::client::LoftyClient, property_id: &str) -> Result<State, CliError> {
+    let program = client
+        .get("/public/v1/account/lp-programs", &[])?
+        .get("programs")
+        .and_then(Value::as_array)
+        .and_then(|a| {
+            a.iter()
+                .find(|p| p.get("propertyId").and_then(Value::as_str) == Some(property_id))
+                .cloned()
+        })
+        .ok_or_else(|| CliError::NotFound(format!("no active LP program for {property_id}")))?;
+    let mine: Vec<Value> = client
+        .get(
+            "/public/v1/orders",
+            &[("propertyId", property_id.to_string())],
+        )?
+        .get("orders")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|o| o.get("status").and_then(Value::as_str) == Some("active"))
+        .collect();
+    let book = client.get(
+        &format!("/public/v1/properties/{property_id}/orderbook"),
+        &[],
+    )?;
+    let usdc = client
+        .get("/public/v1/account/balance", &[])?
+        .get("usdc")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0);
+    let held = client
+        .get("/public/v1/account/positions", &[])?
+        .get("positions")
+        .and_then(Value::as_array)
+        .and_then(|a| {
+            a.iter()
+                .find(|p| p.get("propertyId").and_then(Value::as_str) == Some(property_id))
+                .and_then(|p| p.get("currentTokens").and_then(Value::as_f64))
+        })
+        .unwrap_or(0.0);
+    Ok(State {
+        program,
+        mine,
+        book,
+        usdc,
+        held,
+    })
+}
+
+/// Show the plan (dry run) or confirm and apply it. Shared by every primitive so
+/// the dry-run default and the partial-failure reporting can't diverge.
+fn apply_or_show(
+    ctx: &Ctx,
+    client: &crate::client::LoftyClient,
+    property_id: &str,
+    plan: Value,
+    execute: bool,
+    force: bool,
+    what: &str,
+) -> Result<(), CliError> {
+    if !execute {
+        emit(ctx, "quote-plan", plan, |v| render_plan(v, Render::DryRun));
+        return Ok(());
+    }
+    let steps = plan
+        .get("steps")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if steps.is_empty() {
+        // --execute was honoured; the plan was simply empty.
+        emit(ctx, "quote-noop", plan, |v| render_plan(v, Render::NoOp));
+        return Ok(());
+    }
+    confirm(
+        ctx,
+        force,
+        &format!(
+            "{what} {property_id}: {} order operation(s) on real money",
+            steps.len()
+        ),
+    )?;
+    let mut done = Vec::new();
+    for step in &steps {
+        let result = match step.get("op").and_then(Value::as_str) {
+            Some("cancel") => {
+                let id = step
+                    .get("orderId")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                client.delete(&format!("/public/v1/orders/{id}"))
+            }
+            Some("create") => client.post(
+                "/public/v1/orders",
+                &json!({
+                    "propertyId": property_id,
+                    "direction": step.get("direction"),
+                    "price": step.get("price"),
+                    "quantity": step.get("quantity"),
+                }),
+            ),
+            _ => continue,
+        };
+        match result {
+            Ok(v) => done.push(json!({"step": step, "ok": true, "result": v})),
+            Err(e) => {
+                for line in partial_failure_lines(&done, step) {
+                    eprintln!("{line}");
+                }
+                return Err(CliError::Other(partial_failure_message(
+                    &done,
+                    step,
+                    &e.to_string(),
+                )));
+            }
+        }
+    }
+    emit(ctx, "quote-applied", json!({"applied": done}), |v| {
+        render_plan(v, Render::Applied)
+    });
+    Ok(())
+}
+
+/// Shared book/market derivation: mid from the FULL book (what Lofty measures
+/// the reward band against) and best bid/ask with our own size removed (what a
+/// crossing check must compare to).
+fn market_from(program: &Value, mine: &[Value], book: &Value) -> Result<Market, CliError> {
+    let num = |v: &Value, k: &str| v.get(k).and_then(Value::as_f64).unwrap_or(0.0);
+    let levels = |new_key: &str, old_key: &str| -> Vec<(f64, f64)> {
+        book.pointer(&format!("/orderbook/{new_key}"))
+            .or_else(|| book.pointer(&format!("/orderbook/orderBook/{old_key}")))
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(|l| Some((l.get("price")?.as_f64()?, l.get("quantity")?.as_f64()?)))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let full_bid = levels("bids", "buyOrders")
+        .iter()
+        .map(|l| l.0)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let full_ask = levels("asks", "sellOrders")
+        .iter()
+        .map(|l| l.0)
+        .fold(f64::INFINITY, f64::min);
+    if !full_bid.is_finite() || !full_ask.is_finite() {
+        return Err(CliError::Other(
+            "order book is one-sided or empty — no mid to measure the band against".into(),
+        ));
+    }
+    let mut bid_levels = levels("bids", "buyOrders");
+    let mut ask_levels = levels("asks", "sellOrders");
+    let subtract = |lv: &mut Vec<(f64, f64)>, dir: &str| {
+        for o in mine
+            .iter()
+            .filter(|o| o.get("direction").and_then(Value::as_str) == Some(dir))
+        {
+            let (p, q) = (num(o, "price"), num(o, "quantity"));
+            if let Some(l) = lv.iter_mut().find(|l| (l.0 - p).abs() < 0.005) {
+                l.1 -= q;
+            }
+        }
+        lv.retain(|l| l.1 > 0.0);
+    };
+    subtract(&mut bid_levels, "buy");
+    subtract(&mut ask_levels, "sell");
+    Ok(Market {
+        mid: (full_bid + full_ask) / 2.0,
+        spread: num(program, "allowedSpread"),
+        min_contracts: num(program, "minContracts"),
+        mkt_best_bid: bid_levels
+            .iter()
+            .map(|l| l.0)
+            .fold(f64::NEG_INFINITY, f64::max),
+        mkt_best_ask: ask_levels.iter().map(|l| l.0).fold(f64::INFINITY, f64::min),
+    })
+}
+
+/// Plan a fresh two-sided quote. Pure (unit-tested).
+///
+/// Refuses to produce a ONE-SIDED result: one-sided liquidity earns nothing, so
+/// if either leg fails a rail — most often too few tokens to back the ask —
+/// nothing is planned at all and the caller is told what is short. Placing the
+/// half that works would spend capital for $0.
+///
+/// It never buys inventory. Acquiring tokens moves real money through a
+/// different venue and stays an explicit, separate `amm swap`.
+fn plan_provision(
+    st: &State,
+    bid: f64,
+    ask: f64,
+    qty: Option<u32>,
+    min_ask: Option<f64>,
+) -> Result<Value, CliError> {
+    let m = market_from(&st.program, &st.mine, &st.book)?;
+    let qty = qty.map_or(m.min_contracts, f64::from);
+    let existing: Vec<&str> = ["buy", "sell"]
+        .iter()
+        .filter(|d| {
+            st.mine
+                .iter()
+                .any(|o| o.get("direction").and_then(Value::as_str) == Some(**d))
+        })
+        .copied()
+        .collect();
+    if !existing.is_empty() {
+        return Err(CliError::Usage(format!(
+            "already quoting {} on this property — use `quote recenter` to move it, or `quote pull` to stand down first",
+            existing.join(" and ")
+        )));
+    }
+    let rails = Rails {
+        min_ask,
+        allow_out_of_band: false,
+    };
+    let mut notes = Vec::new();
+    // Check BOTH legs before planning either: a rail failure on one side must
+    // abort the whole quote rather than leave a paid-for, non-earning half.
+    for (dir, price, cover) in [
+        (
+            "buy",
+            bid,
+            Cover {
+                need: bid * qty,
+                have: st.usdc,
+            },
+        ),
+        (
+            "sell",
+            ask,
+            Cover {
+                need: qty,
+                have: st.held,
+            },
+        ),
+    ] {
+        if let Some(n) = check_placement(&m, dir, price, qty, cover, &rails)? {
+            notes.push(n);
+        }
+    }
+    let steps: Vec<Value> = [("buy", bid), ("sell", ask)]
+        .iter()
+        .map(|(dir, price)| {
+            json!({"op": "create", "direction": dir, "price": price, "quantity": qty,
+                   "distFromMid": (price - m.mid).abs()})
+        })
+        .collect();
+    Ok(json!({
+        "propertyId": st.program.get("propertyId"),
+        "mid": m.mid, "band": [m.mid - m.spread, m.mid + m.spread],
+        "steps": steps, "untouched": [], "notes": notes,
+    }))
+}
+
+/// Plan a stand-down. Pure (unit-tested).
+///
+/// Cancels resting orders, except any SELL at or above `keep_above` — a
+/// deliberate hold (typically a cost-basis recovery ask parked above the band)
+/// that standing down must never sweep away.
+fn plan_pull(st: &State, keep_above: Option<f64>, side: Option<Side>) -> Result<Value, CliError> {
+    let num = |v: &Value, k: &str| v.get(k).and_then(Value::as_f64).unwrap_or(0.0);
+    let (mut steps, mut kept) = (Vec::new(), Vec::new());
+    for o in &st.mine {
+        let dir = o
+            .get("direction")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let (price, qty) = (num(o, "price"), num(o, "quantity"));
+        let wrong_side = side.is_some_and(|s| s.as_str() != dir);
+        let held_back = dir == "sell" && keep_above.is_some_and(|k| price >= k);
+        if wrong_side || held_back {
+            kept.push(json!({"direction": dir, "price": price, "quantity": qty,
+                             "reason": if held_back { "at or above --keep-above" }
+                                       else { "other side" }}));
+            continue;
+        }
+        steps.push(
+            json!({"op": "cancel", "direction": dir, "orderId": o.get("orderId"),
+                          "price": price, "quantity": qty}),
+        );
+    }
+    // A pull that would leave exactly one earning side is worth flagging: the
+    // remainder rests, costs cover, and earns nothing.
+    let mut notes = Vec::new();
+    let remaining: Vec<&str> = ["buy", "sell"]
+        .iter()
+        .filter(|d| {
+            kept.iter()
+                .any(|k| k.get("direction").and_then(Value::as_str) == Some(**d))
+        })
+        .copied()
+        .collect();
+    if remaining.len() == 1 && !steps.is_empty() {
+        notes.push(format!(
+            "leaves a {}-only position — one-sided liquidity earns nothing, so the remainder rests for recovery, not rewards",
+            remaining[0]
+        ));
+    }
+    Ok(json!({
+        "propertyId": st.program.get("propertyId"),
+        "steps": steps, "untouched": kept, "notes": notes,
+    }))
+}
+
+/// Live market facts every placement rail measures against. `mkt_best_bid`/
+/// `mkt_best_ask` EXCLUDE our own resting size, so re-pricing past our own order
+/// is never mistaken for crossing the market.
+struct Market {
+    mid: f64,
+    spread: f64,
+    min_contracts: f64,
+    mkt_best_bid: f64,
+    mkt_best_ask: f64,
+}
+
+/// What an order must be backed by: bids by wallet USDC, asks by held tokens.
+struct Cover {
+    need: f64,
+    have: f64,
+}
+
+/// Caller-supplied guards.
+struct Rails {
+    min_ask: Option<f64>,
+    allow_out_of_band: bool,
+}
+
+/// The shared safety rails for any order a `quote` primitive is about to place.
+/// Pure (unit-tested), and the SINGLE place every primitive enforces them — so
+/// they cannot drift apart as the family grows.
+///
+/// Returns an advisory note when an order is allowed but won't earn; returns an
+/// error when placing it would be a mistake we refuse to make on the caller's
+/// behalf. Ordered by what a violation costs:
+///  1. crossing the market — fills instantly as a taker and pays the taker fee,
+///     the exact opposite of resting liquidity;
+///  2. exceeding cover — Lofty auto-cancels uncovered orders;
+///  3. below `minContracts` / outside the reward band — rests but earns nothing;
+///  4. under an explicit `--min-ask` floor — an accidental below-cost sell.
+fn check_placement(
+    m: &Market,
+    dir: &str,
+    price: f64,
+    qty: f64,
+    cover: Cover,
+    r: &Rails,
+) -> Result<Option<String>, CliError> {
+    if dir == "buy" && m.mkt_best_ask.is_finite() && price >= m.mkt_best_ask {
+        return Err(CliError::Usage(format!(
+            "bid ${price:.2} would cross the best ask ${:.2} and fill immediately as a taker; this command only rests liquidity",
+            m.mkt_best_ask
+        )));
+    }
+    if dir == "sell" && m.mkt_best_bid.is_finite() && price <= m.mkt_best_bid {
+        return Err(CliError::Usage(format!(
+            "ask ${price:.2} would cross the best bid ${:.2} and fill immediately as a taker; this command only rests liquidity",
+            m.mkt_best_bid
+        )));
+    }
+    if cover.need > cover.have {
+        return Err(CliError::Usage(if dir == "buy" {
+            format!(
+                "bid needs ${:.2} of cover but the wallet holds ${:.2} — Lofty auto-cancels uncovered orders",
+                cover.need, cover.have
+            )
+        } else {
+            format!(
+                "ask needs {} token(s) but only {} are held — Lofty auto-cancels uncovered orders",
+                cover.need, cover.have
+            )
+        }));
+    }
+    if qty < m.min_contracts {
+        return Err(CliError::Usage(format!(
+            "{dir} size {qty} is below minContracts {} — it would rest but earn nothing",
+            m.min_contracts
+        )));
+    }
+    if dir == "sell" {
+        if let Some(floor) = r.min_ask {
+            if price < floor {
+                return Err(CliError::Usage(format!(
+                    "ask ${price:.2} is below --min-ask ${floor:.2}"
+                )));
+            }
+        }
+    }
+    let (lo, hi) = (m.mid - m.spread, m.mid + m.spread);
+    if (price - m.mid).abs() > m.spread {
+        if !r.allow_out_of_band {
+            return Err(CliError::Usage(format!(
+                "{dir} ${price:.2} is outside the reward band [${lo:.2}, ${hi:.2}] (mid ${:.2}) and would earn nothing — pass --allow-out-of-band to place it anyway",
+                m.mid
+            )));
+        }
+        return Ok(Some(format!(
+            "{dir} ${price:.2} is outside the band [${lo:.2}, ${hi:.2}] — it will rest but earn nothing"
+        )));
+    }
+    Ok(None)
 }
 
 /// One-line description of a planned step, for failure reporting.
@@ -285,9 +822,6 @@ fn plan_recenter(
     t: Targets,
 ) -> Result<Value, CliError> {
     let num = |v: &Value, k: &str| v.get(k).and_then(Value::as_f64).unwrap_or(0.0);
-    let spread = num(program, "allowedSpread");
-    let min_contracts = num(program, "minContracts");
-
     let side = |dir: &str| -> Vec<&Value> {
         mine.iter()
             .filter(|o| o.get("direction").and_then(Value::as_str) == Some(dir))
@@ -295,52 +829,10 @@ fn plan_recenter(
     };
     let (my_bids, my_asks) = (side("buy"), side("sell"));
 
-    // Market book excluding our own resting size, so we never measure against
-    // ourselves when checking for a cross.
-    let levels = |new_key: &str, old_key: &str| -> Vec<(f64, f64)> {
-        book.pointer(&format!("/orderbook/{new_key}"))
-            .or_else(|| book.pointer(&format!("/orderbook/orderBook/{old_key}")))
-            .and_then(Value::as_array)
-            .map(|a| {
-                a.iter()
-                    .filter_map(|l| Some((l.get("price")?.as_f64()?, l.get("quantity")?.as_f64()?)))
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
-    let mut bid_levels = levels("bids", "buyOrders");
-    let mut ask_levels = levels("asks", "sellOrders");
-    let subtract = |lv: &mut Vec<(f64, f64)>, ours: &[&Value]| {
-        for o in ours {
-            let (p, q) = (num(o, "price"), num(o, "quantity"));
-            if let Some(l) = lv.iter_mut().find(|l| (l.0 - p).abs() < 0.005) {
-                l.1 -= q;
-            }
-        }
-        lv.retain(|l| l.1 > 0.0);
-    };
-    subtract(&mut bid_levels, &my_bids);
-    subtract(&mut ask_levels, &my_asks);
-
-    let full_bid = levels("bids", "buyOrders")
-        .iter()
-        .map(|l| l.0)
-        .fold(f64::NEG_INFINITY, f64::max);
-    let full_ask = levels("asks", "sellOrders")
-        .iter()
-        .map(|l| l.0)
-        .fold(f64::INFINITY, f64::min);
-    if !full_bid.is_finite() || !full_ask.is_finite() {
-        return Err(CliError::Other(
-            "order book is one-sided or empty — no mid to measure the band against".into(),
-        ));
-    }
-    let mid = (full_bid + full_ask) / 2.0;
-    let mkt_best_bid = bid_levels
-        .iter()
-        .map(|l| l.0)
-        .fold(f64::NEG_INFINITY, f64::max);
-    let mkt_best_ask = ask_levels.iter().map(|l| l.0).fold(f64::INFINITY, f64::min);
+    // Single shared derivation — the same mid/best-bid/best-ask every other
+    // primitive measures against, so the rails can't drift between commands.
+    let market = market_from(program, mine, book)?;
+    let mid = market.mid;
 
     let mut steps = Vec::new();
     let mut notes = Vec::new();
@@ -374,63 +866,31 @@ fn plan_recenter(
                 if dir == "buy" { "bid" } else { "ask" }
             )));
         }
-        if qty < min_contracts {
-            return Err(CliError::Usage(format!(
-                "{dir} size {qty} is below minContracts {min_contracts} — it would rest but earn nothing"
-            )));
-        }
-        // Crossing check against the market with our own size removed.
-        if dir == "buy" && mkt_best_ask.is_finite() && price >= mkt_best_ask {
-            return Err(CliError::Usage(format!(
-                "bid ${price:.2} would cross the best ask ${mkt_best_ask:.2} and fill immediately as a taker; this command only rests liquidity"
-            )));
-        }
-        if dir == "sell" && mkt_best_bid.is_finite() && price <= mkt_best_bid {
-            return Err(CliError::Usage(format!(
-                "ask ${price:.2} would cross the best bid ${mkt_best_bid:.2} and fill immediately as a taker; this command only rests liquidity"
-            )));
-        }
-        if dir == "sell" {
-            if let Some(floor) = t.min_ask {
-                if price < floor {
-                    return Err(CliError::Usage(format!(
-                        "ask ${price:.2} is below --min-ask ${floor:.2}"
-                    )));
-                }
-            }
-        }
-        // Band check.
-        let dist = (price - mid).abs();
-        if dist > spread {
-            if !t.allow_out_of_band {
-                return Err(CliError::Usage(format!(
-                    "{dir} ${price:.2} is outside the reward band [${:.2}, ${:.2}] (mid ${mid:.2}) and would earn nothing — pass --allow-out-of-band to place it anyway",
-                    mid - spread,
-                    mid + spread
-                )));
-            }
-            notes.push(format!(
-                "{dir} ${price:.2} is outside the band [${:.2}, ${:.2}] — it will rest but earn nothing",
-                mid - spread,
-                mid + spread
-            ));
-        }
-        // Coverage, counting whatever we are leaving in place on that side.
-        if dir == "buy" {
-            let need = price * qty + untouched_bid_usd;
-            if need > usdc {
-                return Err(CliError::Usage(format!(
-                    "bid needs ${need:.2} of cover but the wallet holds ${usdc:.2} — Lofty auto-cancels uncovered orders"
-                )));
+        let cover = if dir == "buy" {
+            Cover {
+                need: price * qty + untouched_bid_usd,
+                have: usdc,
             }
         } else {
-            let need = qty + untouched_ask_qty;
-            if need > held {
-                return Err(CliError::Usage(format!(
-                    "ask needs {need} token(s) but only {held} are held — Lofty auto-cancels uncovered orders"
-                )));
+            Cover {
+                need: qty + untouched_ask_qty,
+                have: held,
             }
+        };
+        if let Some(note) = check_placement(
+            &market,
+            dir,
+            price,
+            qty,
+            cover,
+            &Rails {
+                min_ask: t.min_ask,
+                allow_out_of_band: t.allow_out_of_band,
+            },
+        )? {
+            notes.push(note);
         }
+        let dist = (price - mid).abs();
 
         // Cancel only this side, then re-post it.
         for o in existing.iter() {
@@ -458,14 +918,32 @@ fn plan_recenter(
 
     Ok(json!({
         "propertyId": program.get("propertyId"),
-        "mid": mid, "band": [mid - spread, mid + spread],
+        "mid": mid, "band": [mid - market.spread, mid + market.spread],
         "steps": steps, "untouched": untouched, "notes": notes,
     }))
 }
 
-/// Render a plan (dry run) or the applied result.
-fn render_plan(v: &Value, applied: bool) {
-    if applied {
+/// What a render is reporting. `NoOp` is distinct from `DryRun` on purpose:
+/// with `--execute` and an empty plan the flag WAS honoured and there was simply
+/// nothing to do — telling the operator to "re-run with --execute" would read as
+/// though their flag had been ignored.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Render {
+    DryRun,
+    NoOp,
+    Applied,
+}
+
+fn headline(mode: Render) -> &'static str {
+    match mode {
+        Render::DryRun => "DRY RUN — nothing sent",
+        Render::NoOp => "nothing to do — no matching orders",
+        Render::Applied => "applied",
+    }
+}
+
+fn render_plan(v: &Value, mode: Render) {
+    if mode == Render::Applied {
         for step in v
             .get("applied")
             .and_then(Value::as_array)
@@ -482,13 +960,19 @@ fn render_plan(v: &Value, applied: bool) {
         }
         return;
     }
-    let g = |k: &str| v.get(k).and_then(Value::as_f64).unwrap_or(0.0);
-    println!(
-        "DRY RUN — nothing sent. mid ${:.2}, reward band [${:.2}, ${:.2}]",
-        g("mid"),
-        v.pointer("/band/0").and_then(Value::as_f64).unwrap_or(0.0),
-        v.pointer("/band/1").and_then(Value::as_f64).unwrap_or(0.0),
-    );
+    // Only a plan that PLACES an order measures against a market; a pure
+    // stand-down has no mid, and printing a defaulted $0.00 band would be a lie.
+    match (
+        v.get("mid").and_then(Value::as_f64),
+        v.pointer("/band/0").and_then(Value::as_f64),
+        v.pointer("/band/1").and_then(Value::as_f64),
+    ) {
+        (Some(mid), Some(lo), Some(hi)) => println!(
+            "{}. mid ${mid:.2}, reward band [${lo:.2}, ${hi:.2}]",
+            headline(mode)
+        ),
+        _ => println!("{}.", headline(mode)),
+    }
     for step in v.get("steps").and_then(Value::as_array).unwrap_or(&vec![]) {
         let op = step.get("op").and_then(Value::as_str).unwrap_or("?");
         println!(
@@ -517,7 +1001,9 @@ fn render_plan(v: &Value, applied: bool) {
     for n in v.get("notes").and_then(Value::as_array).unwrap_or(&vec![]) {
         eprintln!("  \u{26a0} {}", n.as_str().unwrap_or_default());
     }
-    eprintln!("re-run with --execute to apply");
+    if mode == Render::DryRun {
+        eprintln!("re-run with --execute to apply");
+    }
 }
 
 #[cfg(test)]
@@ -850,6 +1336,149 @@ mod tests {
         let steps = plan["steps"].as_array().unwrap();
         assert_eq!(steps[0]["op"], "cancel");
         assert_eq!(steps[1]["op"], "create");
+    }
+
+    fn state(mine: &[Value], usdc: f64, held: f64) -> State {
+        State {
+            program: program(),
+            mine: mine.to_vec(),
+            book: book(mine),
+            usdc,
+            held,
+        }
+    }
+
+    // ── provision ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn provision_plans_both_sides_at_once() {
+        let st = state(&[], 1000.0, 10.0);
+        let plan = plan_provision(&st, 51.0, 53.0, Some(4), None).unwrap();
+        assert_eq!(ops(&plan), ["create buy", "create sell"]);
+    }
+
+    #[test]
+    fn provision_size_defaults_to_min_contracts() {
+        let st = state(&[], 1000.0, 10.0);
+        let plan = plan_provision(&st, 51.0, 53.0, None, None).unwrap();
+        assert_eq!(plan["steps"][0]["quantity"], 4.0);
+    }
+
+    #[test]
+    fn provision_refuses_rather_than_leaving_a_paid_for_one_sided_half() {
+        // Only 2 tokens against a 4-token ask: the ask can't be covered. The bid
+        // alone would rest, consume cover, and earn NOTHING — so plan neither.
+        let st = state(&[], 1000.0, 2.0);
+        let e = plan_provision(&st, 51.0, 53.0, Some(4), None).unwrap_err();
+        assert!(format!("{e:?}").contains("held"), "{e:?}");
+    }
+
+    #[test]
+    fn provision_refuses_when_already_quoting() {
+        let mine = [order("B1", "buy", 51.0, 4.0)];
+        let st = state(&mine, 1000.0, 10.0);
+        let e = plan_provision(&st, 51.0, 53.0, Some(4), None).unwrap_err();
+        assert!(format!("{e:?}").contains("recenter"), "{e:?}");
+    }
+
+    #[test]
+    fn provision_enforces_the_same_rails_as_recenter() {
+        let st = state(&[], 1000.0, 10.0);
+        // crossing
+        assert!(plan_provision(&st, 54.0, 55.0, Some(4), None).is_err());
+        // out of band
+        assert!(plan_provision(&st, 45.0, 53.0, Some(4), None).is_err());
+        // below minContracts
+        assert!(plan_provision(&st, 51.0, 53.0, Some(1), None).is_err());
+        // below the ask floor
+        assert!(plan_provision(&st, 51.0, 52.5, Some(4), Some(53.0)).is_err());
+    }
+
+    // ── pull ─────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn pull_cancels_everything_by_default() {
+        let mine = [
+            order("B1", "buy", 51.0, 4.0),
+            order("A1", "sell", 53.0, 4.0),
+        ];
+        let st = state(&mine, 1000.0, 10.0);
+        let plan = plan_pull(&st, None, None).unwrap();
+        assert_eq!(ops(&plan), ["cancel buy", "cancel sell"]);
+        assert!(plan["untouched"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn keep_above_protects_a_recovery_ask_from_a_stand_down() {
+        // The whole point: standing down must not sweep away the cost-basis ask
+        // parked above the band waiting to recover the position.
+        let mine = [
+            order("B1", "buy", 51.0, 4.0),
+            order("A1", "sell", 72.80, 8.0),
+        ];
+        let st = state(&mine, 1000.0, 10.0);
+        let plan = plan_pull(&st, Some(70.0), None).unwrap();
+        assert_eq!(ops(&plan), ["cancel buy"]);
+        let kept = &plan["untouched"][0];
+        assert_eq!(kept["price"], 72.80);
+        assert_eq!(kept["reason"], "at or above --keep-above");
+    }
+
+    #[test]
+    fn keep_above_never_protects_a_bid() {
+        // It guards recovery ASKS; a bid at the same price is still pulled.
+        let mine = [order("B1", "buy", 71.0, 4.0)];
+        let st = state(&mine, 1000.0, 10.0);
+        let plan = plan_pull(&st, Some(70.0), None).unwrap();
+        assert_eq!(ops(&plan), ["cancel buy"]);
+    }
+
+    #[test]
+    fn pull_can_be_limited_to_one_side() {
+        let mine = [
+            order("B1", "buy", 51.0, 4.0),
+            order("A1", "sell", 53.0, 4.0),
+        ];
+        let st = state(&mine, 1000.0, 10.0);
+        let plan = plan_pull(&st, None, Some(Side::Buy)).unwrap();
+        assert_eq!(ops(&plan), ["cancel buy"]);
+        assert_eq!(plan["untouched"][0]["reason"], "other side");
+    }
+
+    #[test]
+    fn pull_flags_when_it_leaves_a_non_earning_remainder() {
+        let mine = [
+            order("B1", "buy", 51.0, 4.0),
+            order("A1", "sell", 72.80, 8.0),
+        ];
+        let st = state(&mine, 1000.0, 10.0);
+        let plan = plan_pull(&st, Some(70.0), None).unwrap();
+        assert!(
+            plan["notes"][0].as_str().unwrap().contains("earns nothing"),
+            "{plan}"
+        );
+    }
+
+    #[test]
+    fn a_pull_plan_carries_no_market_because_it_places_nothing() {
+        // A stand-down measures against no mid or band. The renderer must omit
+        // them rather than default to $0.00, which reads as a real (wrong) market.
+        let mine = [order("B1", "buy", 51.0, 4.0)];
+        let st = state(&mine, 1000.0, 10.0);
+        let plan = plan_pull(&st, None, None).unwrap();
+        assert!(plan.get("mid").is_none(), "pull should not invent a mid");
+        assert!(plan.get("band").is_none(), "pull should not invent a band");
+        // Plans that DO place an order still carry both.
+        let placed = plan_provision(&state(&[], 1000.0, 10.0), 51.0, 53.0, Some(4), None).unwrap();
+        assert!(placed["mid"].as_f64().is_some());
+        assert!(placed["band"][0].as_f64().is_some());
+    }
+
+    #[test]
+    fn pull_with_nothing_to_cancel_plans_nothing() {
+        let st = state(&[], 1000.0, 10.0);
+        let plan = plan_pull(&st, None, None).unwrap();
+        assert!(plan["steps"].as_array().unwrap().is_empty());
     }
 
     #[test]
