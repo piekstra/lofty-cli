@@ -198,3 +198,51 @@ fn completions_render_for_zsh() {
         .success()
         .stdout(predicate::str::contains("#compdef lofty"));
 }
+
+#[test]
+fn quote_recenter_bad_args_fail_before_the_keychain_is_touched() {
+    // AGENTS.md: validate args and confirm BEFORE touching the keychain or
+    // network, so bad args never prompt or hang. A recenter naming neither side
+    // must be a usage error (exit 2) — not an auth error, and not a keychain
+    // prompt on a machine with no key stored.
+    for args in [
+        vec![
+            "--json",
+            "quote",
+            "recenter",
+            "--property-id",
+            "01SAMPLEPROP00000000000001",
+        ],
+        vec![
+            "--json",
+            "quote",
+            "recenter",
+            "--property-id",
+            "01SAMPLEPROP00000000000001",
+            "--bid",
+            "0",
+        ],
+    ] {
+        let out = lofty().args(&args).assert().code(2);
+        let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&stdout).expect("stdout is a JSON error DTO");
+        assert_eq!(v["error"]["code"], "usage", "args {args:?} → {stdout}");
+    }
+}
+
+#[test]
+fn help_lists_the_quote_primitives() {
+    lofty()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("quote"));
+    lofty()
+        .args(["quote", "recenter", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--execute"))
+        .stdout(predicate::str::contains("--min-ask"))
+        .stdout(predicate::str::contains("--allow-out-of-band"));
+}

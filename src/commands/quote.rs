@@ -54,7 +54,6 @@ pub enum Cmd {
 }
 
 pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
-    let client = ctx.client()?;
     match cmd {
         Cmd::Recenter {
             property_id,
@@ -78,6 +77,10 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
                 }
             }
 
+            // Only now touch the keychain/network: bad args must fail fast with a
+            // usage error (exit 2) instead of an auth error — or a keychain prompt —
+            // on a machine with no key stored.
+            let client = ctx.client()?;
             let program = client
                 .get("/public/v1/account/lp-programs", &[])?
                 .get("programs")
