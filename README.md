@@ -61,6 +61,8 @@ $ lofty account coverage                # what's reserved backing your bids vs f
 $ lofty account breakeven --margin 5    # fee-inclusive sell price (basis hides the buy fee)
 $ lofty orders list|get|create|cancel   # mutations confirm, or --force
 $ lofty quote recenter --property-id <ID> --bid <P>   # move a quote safely (dry run by default)
+$ lofty quote provision --property-id <ID> --bid <P> --ask <Q>   # post a fresh two-sided quote
+$ lofty quote pull --property-id <ID> --keep-above <P>           # stand down, keeping recovery asks
 $ lofty amm pools|quote|swap            # swap needs --max-usdc / --min-usdc
 $ lofty api GET /public/v1/amm/pools    # raw passthrough (Bearer attached)
 $ lofty api --internal GET /properties/v2/marketplace   # website API (open reads)
@@ -232,6 +234,26 @@ Cancel always precedes the matching create: posting first would double-commit
 capital and can breach per-property coverage, which auto-cancels **both** orders.
 The trade-off is a brief one-sided window (the API has no atomic modify) — if the
 re-post fails, the command says so loudly, because that window earns nothing.
+
+`provision` posts a fresh two-sided quote and **refuses to leave you one-sided** —
+if either leg fails a rail (usually too few tokens to back the ask), nothing is
+sent and the shortfall is reported, because the half that *would* rest costs cover
+and earns nothing. It never buys inventory for you; that stays an explicit
+`amm swap`.
+
+`pull` stands down from a property. `--keep-above` protects orders you mean to
+leave resting — typically a cost-basis recovery ask parked above the band — so
+standing down never sweeps away the sell that's waiting to recover your position:
+
+```console
+$ lofty quote pull --property-id <ID> --keep-above 13.00
+DRY RUN — nothing sent.
+  keep   sell $13.60 x1 (untouched)
+re-run with --execute to apply
+```
+
+All three share one implementation of the rails (`check_placement`), so they
+cannot drift apart.
 
 ## JSON, exit codes, limits
 
