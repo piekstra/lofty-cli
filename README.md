@@ -177,8 +177,10 @@ ask      = trueCost × (1 + margin) / (1 − sellFee)
 
 Selling at your displayed basis therefore books a loss twice over. `breakeven`
 does the arithmetic with **live fee rates** — read from the property
-(`mtSellFeePct`) and its AMM pool (`fees.platformSell`), so it reflects the venue
-you actually trade on.
+(`mtSellFeePct`) and its AMM pool, so it reflects the venue you actually trade on.
+AMM rates are all-in: a swap pays the platform fee **plus** the pool's LP fee,
+which the pool reports as separate lines (e.g. buy = `platformBuy` 3% + `lp` 2% =
+5%). The order book has no LP fee.
 
 The buy fee you paid depends on where you bought, which the API doesn't record —
 so both venues are priced and labelled rather than guessing. Pass `--buy-fee` if
