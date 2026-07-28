@@ -105,6 +105,31 @@ total: $3.5000 across 48 payout(s); 1 gap period(s)
   ⚠ Sample City, ST 00000: 1 period(s) with no payout — verify eligibility: 2026-01-02 13:00 UTC
 ```
 
+### Example — am I actually earning?
+
+LP rewards have several qualification rules that must **all** hold at once, and
+missing any one silently pays you nothing. The costliest is that liquidity must be
+**two-sided** — a bid alone earns *nothing*, no matter how large or how close to
+mid it rests.
+
+`eligibility` checks every open order against the published rules (two-sided,
+at least `minContracts`, within `allowedSpread` of the book mid, covered by your
+balances), projects your pool share from the published score formula, and names
+the reason whenever something earns nothing. Numbers below are illustrative.
+
+```console
+$ lofty rewards eligibility
+Sample City, ST 00000: EARNING — 27.4% of pool ≈ $2.74/day (mid $61.63, competing score 5.0)
+Other City, ST 11111: $0 — not two-sided: no qualifying ASK (one-sided liquidity earns nothing)
+    sell $13.60 x1 — out of band, below minContracts
+projected total: $2.74/day across 2 properties
+```
+
+Qualifying a *side* and *scoring* are separate: an order that is sized and covered
+establishes that side exists, while only in-band orders accrue score — so a
+position can be two-sided yet still score nothing, and the output distinguishes
+the two rather than collapsing them into one boolean.
+
 ### Example — what can I actually spend?
 
 Lofty funds open orders from your live balances: buys need the USDC and sells
@@ -170,31 +195,6 @@ book         | $71.37    | $67.97         | 3.00      | $65.59
 So a $63.68 basis needs **$69.29** just to break even, and **$72.75** to net 5%.
 `--sell-venue amm` prices an exit into the pool instead, `--cost` prices a
 hypothetical position, and `--sell-fee` / `--buy-fee` override the published rates.
-
-### Example — am I actually earning?
-
-LP rewards have several qualification rules that must **all** hold at once, and
-missing any one silently pays you nothing. The costliest is that liquidity must be
-**two-sided** — a bid alone earns *nothing*, no matter how large or how close to
-mid it rests.
-
-`eligibility` checks every open order against the published rules (two-sided,
-at least `minContracts`, within `allowedSpread` of the book mid, covered by your
-balances), projects your pool share from the published score formula, and names
-the reason whenever something earns nothing. Numbers below are illustrative.
-
-```console
-$ lofty rewards eligibility
-Sample City, ST 00000: EARNING — 27.4% of pool ≈ $2.74/day (mid $61.63, competing score 5.0)
-Other City, ST 11111: $0 — not two-sided: no qualifying ASK (one-sided liquidity earns nothing)
-    sell $13.60 x1 — out of band, below minContracts
-projected total: $2.74/day across 2 properties
-```
-
-Qualifying a *side* and *scoring* are separate: an order that is sized and covered
-establishes that side exists, while only in-band orders accrue score — so a
-position can be two-sided yet still score nothing, and the output distinguishes
-the two rather than collapsing them into one boolean.
 
 ## JSON, exit codes, limits
 
