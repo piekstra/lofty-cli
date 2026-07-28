@@ -146,9 +146,9 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
 
             // Only now touch the keychain/network: bad args must fail fast with a
             // usage error (exit 2) instead of an auth error — or a keychain prompt —
-            // on a machine with no key stored.
-            // Same shared gather + apply path as every other primitive; a second
-            // private copy here is exactly the drift these helpers exist to stop.
+            // on a machine with no key stored. From here it is the same shared
+            // gather + apply path every other primitive uses; a private copy here
+            // is exactly the drift those helpers exist to stop.
             let client = ctx.client()?;
             let st = fetch_state(&client, property_id)?;
             let plan = plan_recenter(
@@ -351,10 +351,11 @@ fn apply_or_show(
         match result {
             Ok(v) => done.push(json!({"step": step, "ok": true, "result": v})),
             Err(e) => {
-                for line in partial_failure_lines(&done, step) {
+                for line in partial_failure_lines(what, &done, step) {
                     eprintln!("{line}");
                 }
                 return Err(CliError::Other(partial_failure_message(
+                    what,
                     &done,
                     step,
                     &e.to_string(),
@@ -664,14 +665,14 @@ fn describe_step(step: &Value) -> String {
 /// so the message alone is enough to see whether a side is now unquoted — it has
 /// to stand on its own, because it is all the `--json` error DTO carries.
 /// Pure (unit-tested).
-fn partial_failure_message(applied: &[Value], failed: &Value, err: &str) -> String {
+fn partial_failure_message(what: &str, applied: &[Value], failed: &Value, err: &str) -> String {
     let done: Vec<String> = applied
         .iter()
         .filter_map(|a| a.get("step"))
         .map(describe_step)
         .collect();
     format!(
-        "recenter failed partway on `{}`: {err}. Already applied: {}. A side may now be unquoted and earning $0 — check `lofty rewards eligibility` and re-post it",
+        "{what} failed partway on `{}`: {err}. Already applied: {}. A side may now be unquoted and earning $0 — check `lofty rewards eligibility` and re-post it",
         describe_step(failed),
         if done.is_empty() {
             "nothing".to_string()
@@ -682,9 +683,10 @@ fn partial_failure_message(applied: &[Value], failed: &Value, err: &str) -> Stri
 }
 
 /// Human-readable diagnostic for the same failure (stderr, both output modes).
-fn partial_failure_lines(applied: &[Value], failed: &Value) -> Vec<String> {
-    let mut out =
-        vec!["\u{26a0} recenter FAILED partway — a side may now be unquoted and earning $0".into()];
+fn partial_failure_lines(what: &str, applied: &[Value], failed: &Value) -> Vec<String> {
+    let mut out = vec![format!(
+        "\u{26a0} {what} FAILED partway — a side may now be unquoted and earning $0"
+    )];
     for a in applied.iter().filter_map(|a| a.get("step")) {
         out.push(format!("    applied: {}", describe_step(a)));
     }
@@ -1391,7 +1393,7 @@ mod tests {
                                        "price": 62.25, "quantity": 3.0}})];
         let failed = json!({"op": "create", "direction": "buy",
                             "price": 61.50, "quantity": 3.0});
-        let msg = partial_failure_message(&applied, &failed, "upstream 500");
+        let msg = partial_failure_message("recenter", &applied, &failed, "upstream 500");
         assert!(msg.contains("create buy $61.50 x3"), "{msg}");
         assert!(msg.contains("cancel buy $62.25 x3"), "{msg}");
         assert!(msg.contains("upstream 500"), "{msg}");
@@ -1400,10 +1402,25 @@ mod tests {
     }
 
     #[test]
+    fn partial_failure_names_the_command_that_actually_failed() {
+        // The helpers are shared by all three primitives; hardcoding one name
+        // would make --json (where this string is the entire report) misattribute
+        // the failure to a command the operator never ran.
+        let failed = json!({"op": "cancel", "direction": "sell",
+                            "price": 13.60, "quantity": 1.0});
+        for what in ["recenter", "provision", "pull"] {
+            let msg = partial_failure_message(what, &[], &failed, "boom");
+            assert!(msg.starts_with(what), "{msg}");
+            let lines = partial_failure_lines(what, &[], &failed);
+            assert!(lines[0].contains(what), "{}", lines[0]);
+        }
+    }
+
+    #[test]
     fn partial_failure_before_anything_applied_says_nothing_landed() {
         let failed = json!({"op": "cancel", "direction": "buy",
                             "price": 62.25, "quantity": 3.0});
-        let msg = partial_failure_message(&[], &failed, "boom");
+        let msg = partial_failure_message("recenter", &[], &failed, "boom");
         assert!(msg.contains("Already applied: nothing"), "{msg}");
     }
 
@@ -1413,7 +1430,7 @@ mod tests {
                                        "price": 62.25, "quantity": 3.0}})];
         let failed = json!({"op": "create", "direction": "buy",
                             "price": 61.50, "quantity": 3.0});
-        let lines = partial_failure_lines(&applied, &failed);
+        let lines = partial_failure_lines("recenter", &applied, &failed);
         assert!(lines[0].contains("FAILED partway"));
         assert!(lines
             .iter()
