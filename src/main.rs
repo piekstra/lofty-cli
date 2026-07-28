@@ -18,7 +18,9 @@ use pk_cli_secrets::CredentialStore;
 use pk_cli_selfupdate::{SelfUpdateArgs, Updater};
 
 use client::LoftyClient;
-use commands::{account, amm, api, catalog as catalog_cmd, orders, properties, rewards, Ctx};
+use commands::{
+    account, amm, api, catalog as catalog_cmd, orders, properties, quote, rewards, Ctx,
+};
 use config::{Config, KEYCHAIN_ACCOUNT};
 
 const BIN: &str = "lofty";
@@ -59,6 +61,9 @@ enum Command {
     /// AMM pools, quotes, and swaps.
     #[command(subcommand)]
     Amm(amm::Cmd),
+    /// Safe primitives for moving a resting two-sided quote (dry run by default).
+    #[command(subcommand)]
+    Quote(quote::Cmd),
     /// Raw API passthrough (SDK surface; --internal for the website API).
     Api(api::Args),
     /// The observed internal platform endpoint inventory.
@@ -120,6 +125,7 @@ fn run(cli: &Cli) -> Result<(), CliError> {
         Command::Account(cmd) => account::run(&ctx, cmd),
         Command::Rewards(cmd) => rewards::run(&ctx, cmd),
         Command::Amm(cmd) => amm::run(&ctx, cmd),
+        Command::Quote(cmd) => quote::run(&ctx, cmd),
         Command::Api(args) => api::run(&ctx, args),
         Command::Catalog(args) => catalog_cmd::run(&ctx, args),
         Command::SelfUpdate(args) => Updater {
@@ -149,6 +155,7 @@ fn run(cli: &Cli) -> Result<(), CliError> {
                     "account",
                     "rewards",
                     "amm",
+                    "quote",
                     "api",
                     "catalog",
                 ],
