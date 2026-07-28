@@ -40,6 +40,44 @@ pub enum Cmd {
         #[arg(long, value_name = "USD")]
         spend: Option<f64>,
     },
+    /// Fee-inclusive break-even sell price for your holdings.
+    ///
+    /// A position's `costBasis` is what you PAID FOR THE TOKENS — it excludes the
+    /// platform buy fee that was charged on top, so it is NOT your true cost, and
+    /// selling at it books a loss. Break-even also has to clear the sell fee on
+    /// the way out. This computes both: true cost = costBasis x (1 + buy fee),
+    /// then the ask that nets it after the sell fee, plus any target margin.
+    ///
+    /// Fee rates are read live from the property (marketplace) and its AMM pool,
+    /// so the numbers reflect the venue you actually trade on.
+    Breakeven {
+        /// Only this property (default: every position you hold).
+        #[arg(long)]
+        property_id: Option<String>,
+        /// Price a hypothetical cost per token instead of your real position.
+        #[arg(long, value_name = "USD")]
+        cost: Option<f64>,
+        /// Net profit to target above true cost, in percent (default 0 = break even).
+        #[arg(long, value_name = "PCT", default_value_t = 0.0)]
+        margin: f64,
+        /// Where you would sell: the order book, or into the AMM pool.
+        #[arg(long, value_name = "VENUE", default_value = "book")]
+        sell_venue: SellVenue,
+        /// Buy fee already paid, in percent. Overrides the both-venues breakdown.
+        #[arg(long, value_name = "PCT")]
+        buy_fee: Option<f64>,
+        /// Sell fee to clear, in percent. Overrides the venue's published rate.
+        #[arg(long, value_name = "PCT")]
+        sell_fee: Option<f64>,
+    },
+}
+
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SellVenue {
+    /// Marketplace limit order (`mtSellFeePct`).
+    Book,
+    /// Swap into the AMM pool (`fees.platformSell`).
+    Amm,
 }
 
 pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
@@ -134,6 +172,268 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
             let report = coverage(usdc, &orders, &positions, *spend);
             emit(ctx, "account-coverage", report, render_coverage);
             Ok(())
+        }
+        Cmd::Breakeven {
+            property_id,
+            cost,
+            margin,
+            sell_venue,
+            buy_fee,
+            sell_fee,
+        } => {
+            for (name, v) in [
+                ("--cost", cost),
+                ("--buy-fee", buy_fee),
+                ("--sell-fee", sell_fee),
+            ] {
+                if v.is_some_and(|x| !x.is_finite() || x < 0.0) {
+                    return Err(CliError::Usage(format!(
+                        "{name} must be a non-negative number"
+                    )));
+                }
+            }
+            if !margin.is_finite() || *margin < 0.0 {
+                return Err(CliError::Usage(
+                    "--margin must be a non-negative percent".into(),
+                ));
+            }
+            if sell_fee.is_some_and(|f| f >= 100.0) {
+                return Err(CliError::Usage(
+                    "--sell-fee must be below 100% (a 100% fee has no break-even price)".into(),
+                ));
+            }
+
+            // Pools carry AMM fee rates for every property in one call.
+            let pools = client
+                .get("/public/v1/amm/pools", &[])?
+                .get("pools")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+
+            // Which positions to price: an explicit --cost needs a property only
+            // for its fee rates; otherwise every position holding tokens.
+            let mut targets: Vec<(String, f64)> = Vec::new();
+            match (cost, property_id) {
+                (Some(c), Some(pid)) => targets.push((pid.clone(), *c)),
+                (Some(_), None) => {
+                    return Err(CliError::Usage(
+                        "--cost also needs --property-id (fee rates are per property)".into(),
+                    ))
+                }
+                (None, filter) => {
+                    let positions = client
+                        .get("/public/v1/account/positions", &[])?
+                        .get("positions")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default();
+                    for p in &positions {
+                        let pid = p
+                            .get("propertyId")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default();
+                        if filter.as_deref().is_some_and(|f| f != pid) {
+                            continue;
+                        }
+                        if p.get("currentTokens")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0)
+                            <= 0.0
+                        {
+                            continue;
+                        }
+                        // `costBasis` is per token, in cents.
+                        let basis =
+                            p.get("costBasis").and_then(Value::as_f64).unwrap_or(0.0) / 100.0;
+                        targets.push((pid.to_string(), basis));
+                    }
+                    if targets.is_empty() {
+                        return Err(CliError::NotFound(match filter {
+                            Some(f) => format!("no position holding tokens for {f}"),
+                            None => "no positions holding tokens".into(),
+                        }));
+                    }
+                }
+            }
+
+            let mut rows = Vec::new();
+            for (pid, basis) in targets {
+                let listing = client.get(&format!("/public/v1/properties/{pid}"), &[])?;
+                let pool = pools
+                    .iter()
+                    .find(|p| p.get("propertyId").and_then(Value::as_str) == Some(pid.as_str()));
+                let fees = venue_fees(&listing, pool);
+                rows.push(breakeven(
+                    &pid,
+                    basis,
+                    &fees,
+                    *margin,
+                    *sell_venue,
+                    *buy_fee,
+                    *sell_fee,
+                ));
+            }
+            let report = serde_json::json!({"marginPct": margin, "positions": rows});
+            emit(ctx, "account-breakeven", report, render_breakeven);
+            Ok(())
+        }
+    }
+}
+
+/// Published fee rates for a property, normalized to PERCENT.
+///
+/// The two sources disagree on units, which is easy to get wrong: the property
+/// listing reports fractions (`mtSellFeePct: 0.035` = 3.5%) while the AMM pool
+/// reports percentages (`fees.platformSell: 2.5` = 2.5%).
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+struct VenueFees {
+    book_buy: Option<f64>,
+    book_sell: Option<f64>,
+    amm_buy: Option<f64>,
+    amm_sell: Option<f64>,
+}
+
+fn venue_fees(listing: &Value, pool: Option<&Value>) -> VenueFees {
+    // `properties/{id}` wraps its payload in `property`; accept a bare listing too,
+    // the same tolerance the orderbook parser carries for its envelope change.
+    let frac = |field: &str| {
+        [
+            format!("/property/liquidity/{field}"),
+            format!("/liquidity/{field}"),
+        ]
+        .iter()
+        .find_map(|p| listing.pointer(p).and_then(Value::as_f64))
+        // Scaling a binary float by 100 leaves visible dirt (0.035 →
+        // 3.4999999999999996) that would surface verbatim in --json. Rates are
+        // published to a few decimals, so snap off the representation error.
+        .map(|v| (v * 100.0 * 1e6).round() / 1e6) // listing fractions → percent
+    };
+    let pct = |k: &str| {
+        pool.and_then(|p| p.pointer(&format!("/fees/{k}")))
+            .and_then(Value::as_f64) // pool values are already percent
+    };
+    VenueFees {
+        book_buy: frac("mtBuyFeePct"),
+        book_sell: frac("mtSellFeePct"),
+        amm_buy: pct("platformBuy"),
+        amm_sell: pct("platformSell"),
+    }
+}
+
+/// The ask that nets `margin` percent above true cost after the sell fee.
+///
+/// Two fees bracket a round trip and both must be paid out of the sale:
+///   trueCost = costBasis x (1 + buyFee/100)     <- the buy fee already charged
+///   ask      = trueCost x (1 + margin/100) / (1 - sellFee/100)
+///
+/// `costBasis` is what you paid for the tokens and EXCLUDES the platform buy
+/// fee, so pricing off it (or off any figure that omits the fee) books a loss.
+fn ask_for(cost_basis: f64, buy_fee_pct: f64, sell_fee_pct: f64, margin_pct: f64) -> (f64, f64) {
+    let true_cost = cost_basis * (1.0 + buy_fee_pct / 100.0);
+    let net = 1.0 - sell_fee_pct / 100.0;
+    // A fee at/above 100% leaves nothing to net; report an unreachable price
+    // rather than a negative one that looks like a bargain.
+    let ask = if net > 0.0 {
+        true_cost * (1.0 + margin_pct / 100.0) / net
+    } else {
+        f64::INFINITY
+    };
+    (true_cost, ask)
+}
+
+/// Price one position. Pure (unit-tested).
+///
+/// The buy fee you actually paid depends on where you bought, which the API does
+/// not record — so unless `--buy-fee` says otherwise, both venues are priced and
+/// labelled rather than silently guessing one.
+#[allow(clippy::too_many_arguments)]
+fn breakeven(
+    property_id: &str,
+    cost_basis: f64,
+    fees: &VenueFees,
+    margin_pct: f64,
+    sell_venue: SellVenue,
+    buy_fee: Option<f64>,
+    sell_fee: Option<f64>,
+) -> Value {
+    let (venue_name, published_sell) = match sell_venue {
+        SellVenue::Book => ("book", fees.book_sell),
+        SellVenue::Amm => ("amm", fees.amm_sell),
+    };
+    let sell_fee_pct = sell_fee.or(published_sell);
+
+    // Candidate acquisition costs: an explicit override, else each venue we know.
+    let candidates: Vec<(&str, Option<f64>)> = match buy_fee {
+        Some(f) => vec![("specified", Some(f))],
+        None => vec![("amm", fees.amm_buy), ("book", fees.book_buy)],
+    };
+
+    let scenarios: Vec<Value> = candidates
+        .into_iter()
+        .filter_map(|(via, bf)| Some((via, bf?, sell_fee_pct?)))
+        .map(|(via, bf, sf)| {
+            let (true_cost, ask) = ask_for(cost_basis, bf, sf, margin_pct);
+            let (_, breakeven_ask) = ask_for(cost_basis, bf, sf, 0.0);
+            serde_json::json!({
+                "acquiredVia": via, "buyFeePct": bf, "trueCost": true_cost,
+                "breakEvenAsk": breakeven_ask, "targetAsk": ask,
+            })
+        })
+        .collect();
+
+    serde_json::json!({
+        "propertyId": property_id,
+        "costBasis": cost_basis,
+        "sellVenue": venue_name,
+        "sellFeePct": sell_fee_pct,
+        "scenarios": scenarios,
+    })
+}
+
+/// Human-readable break-even: one block per position, a row per acquisition
+/// venue, with the cost-basis caveat stated up front.
+fn render_breakeven(v: &Value) {
+    let margin = v.get("marginPct").and_then(Value::as_f64).unwrap_or(0.0);
+    let positions = v
+        .get("positions")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    for p in &positions {
+        let pid = p.get("propertyId").and_then(Value::as_str).unwrap_or("?");
+        let basis = p.get("costBasis").and_then(Value::as_f64).unwrap_or(0.0);
+        let venue = p.get("sellVenue").and_then(Value::as_str).unwrap_or("?");
+        match p.get("sellFeePct").and_then(Value::as_f64) {
+            Some(sf) => eprintln!(
+                "{pid}: cost basis ${basis:.2}/token (excludes the buy fee) — selling on {venue} at {sf:.2}% fee",
+            ),
+            None => {
+                eprintln!("{pid}: no published {venue} sell fee — pass --sell-fee to price it");
+                continue;
+            }
+        }
+        let rows: Vec<Value> = p
+            .get("scenarios")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .map(|s| {
+                let g = |k: &str| s.get(k).and_then(Value::as_f64).unwrap_or(0.0);
+                serde_json::json!({
+                    "acquired via": s.get("acquiredVia"),
+                    "buy fee %": format!("{:.2}", g("buyFeePct")),
+                    "true cost": format!("${:.2}", g("trueCost")),
+                    "break-even ask": format!("${:.2}", g("breakEvenAsk")),
+                    format!("ask +{margin:.1}%"): format!("${:.2}", g("targetAsk")),
+                })
+            })
+            .collect();
+        if rows.is_empty() {
+            eprintln!("  (no published buy-fee rate — pass --buy-fee to price it)");
+        } else {
+            output::table(&rows);
         }
     }
 }
@@ -413,5 +713,160 @@ mod tests {
         assert_eq!(r["freeUsdc"], 25.0);
         assert_eq!(r["overCommitted"], false);
         assert!(r["properties"].as_array().unwrap().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod breakeven_tests {
+    use super::*;
+    use serde_json::json;
+
+    const P: &str = "01SAMPLEPROPERTY000000000A";
+
+    // Rates mirror the live shapes: the listing reports FRACTIONS, the pool PERCENT.
+    fn listing() -> Value {
+        json!({"liquidity": {"mtBuyFeePct": 0.03, "mtSellFeePct": 0.035, "lpFeePct": 0.02}})
+    }
+    fn pool() -> Value {
+        json!({"propertyId": P, "fees": {"lp": 2.5, "platformBuy": 5.0, "platformSell": 2.5}})
+    }
+    fn fees() -> VenueFees {
+        venue_fees(&listing(), Some(&pool()))
+    }
+    fn scenario<'a>(v: &'a Value, via: &str) -> &'a Value {
+        v["scenarios"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["acquiredVia"] == via)
+            .unwrap_or_else(|| panic!("no `{via}` scenario"))
+    }
+
+    #[test]
+    fn normalizes_the_two_fee_unit_conventions_to_percent() {
+        // The listing's 0.035 and the pool's 2.5 both mean "percent" after this.
+        let f = fees();
+        assert_eq!(f.book_buy, Some(3.0));
+        assert_eq!(f.book_sell, Some(3.5));
+        assert_eq!(f.amm_buy, Some(5.0));
+        assert_eq!(f.amm_sell, Some(2.5));
+    }
+
+    #[test]
+    fn reads_fees_through_the_property_envelope() {
+        // `properties/{id}` returns {"property": {...}} — reading a bare
+        // `/liquidity` finds nothing and silently drops the marketplace rates.
+        let wrapped = json!({"property": listing()});
+        let f = venue_fees(&wrapped, Some(&pool()));
+        assert_eq!(f.book_sell, Some(3.5), "book fees lost inside the envelope");
+        assert_eq!(f.book_buy, Some(3.0));
+        // A bare listing still works.
+        assert_eq!(venue_fees(&listing(), None).book_sell, Some(3.5));
+    }
+
+    #[test]
+    fn true_cost_adds_the_buy_fee_the_basis_leaves_out() {
+        // $100 basis + 5% AMM buy fee = $105 actually spent per token.
+        let (true_cost, _) = ask_for(100.0, 5.0, 0.0, 0.0);
+        assert!((true_cost - 105.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn break_even_ask_clears_the_sell_fee() {
+        // Selling at true cost loses the sell fee; the ask must gross it up.
+        let (_, ask) = ask_for(100.0, 5.0, 3.5, 0.0);
+        assert!((ask - 105.0 / 0.965).abs() < 1e-9);
+        // Net proceeds land exactly back on true cost.
+        assert!((ask * 0.965 - 105.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn margin_is_net_of_every_fee() {
+        let (true_cost, ask) = ask_for(100.0, 5.0, 3.5, 5.0);
+        let net = ask * 0.965; // proceeds after the sell fee
+        assert!(
+            (net - true_cost * 1.05).abs() < 1e-9,
+            "net {net} vs {true_cost}"
+        );
+    }
+
+    #[test]
+    fn prices_both_acquisition_venues_when_the_buy_fee_is_unknown() {
+        let v = breakeven(P, 100.0, &fees(), 0.0, SellVenue::Book, None, None);
+        assert_eq!(v["scenarios"].as_array().unwrap().len(), 2);
+        assert_eq!(scenario(&v, "amm")["buyFeePct"], 5.0);
+        assert_eq!(scenario(&v, "book")["buyFeePct"], 3.0);
+        // A pricier acquisition needs a higher exit.
+        assert!(
+            scenario(&v, "amm")["breakEvenAsk"].as_f64().unwrap()
+                > scenario(&v, "book")["breakEvenAsk"].as_f64().unwrap()
+        );
+    }
+
+    #[test]
+    fn an_explicit_buy_fee_collapses_to_one_scenario() {
+        let v = breakeven(P, 100.0, &fees(), 0.0, SellVenue::Book, Some(0.0), None);
+        let s = v["scenarios"].as_array().unwrap();
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0]["acquiredVia"], "specified");
+        // buy fee 0 → true cost IS the basis.
+        assert!((s[0]["trueCost"].as_f64().unwrap() - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn selling_into_the_amm_uses_the_pool_fee() {
+        let book = breakeven(P, 100.0, &fees(), 0.0, SellVenue::Book, Some(5.0), None);
+        let amm = breakeven(P, 100.0, &fees(), 0.0, SellVenue::Amm, Some(5.0), None);
+        assert_eq!(book["sellFeePct"], 3.5);
+        assert_eq!(amm["sellFeePct"], 2.5);
+        // The cheaper exit fee needs a lower ask to break even.
+        assert!(
+            amm["scenarios"][0]["breakEvenAsk"].as_f64().unwrap()
+                < book["scenarios"][0]["breakEvenAsk"].as_f64().unwrap()
+        );
+    }
+
+    #[test]
+    fn an_explicit_sell_fee_overrides_the_published_rate() {
+        let v = breakeven(
+            P,
+            100.0,
+            &fees(),
+            0.0,
+            SellVenue::Book,
+            Some(0.0),
+            Some(10.0),
+        );
+        assert_eq!(v["sellFeePct"], 10.0);
+        assert!((v["scenarios"][0]["breakEvenAsk"].as_f64().unwrap() - 100.0 / 0.9).abs() < 1e-9);
+    }
+
+    #[test]
+    fn missing_published_rates_yield_no_scenarios_rather_than_wrong_ones() {
+        // No pool and no listing fees: nothing to price off, so say nothing.
+        let bare = venue_fees(&json!({}), None);
+        let v = breakeven(P, 100.0, &bare, 0.0, SellVenue::Book, None, None);
+        assert!(v["sellFeePct"].is_null());
+        assert!(v["scenarios"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn reproduces_a_worked_position() {
+        // $63.68 basis, bought via AMM (5%), sold on the book (3.5%):
+        // true cost $66.86; break-even $69.29; a 5% net target $72.75.
+        let v = breakeven(P, 63.68, &fees(), 5.0, SellVenue::Book, Some(5.0), None);
+        let s = &v["scenarios"][0];
+        assert_eq!(format!("{:.2}", s["trueCost"].as_f64().unwrap()), "66.86");
+        assert_eq!(
+            format!("{:.2}", s["breakEvenAsk"].as_f64().unwrap()),
+            "69.29"
+        );
+        assert_eq!(format!("{:.2}", s["targetAsk"].as_f64().unwrap()), "72.75");
+    }
+
+    #[test]
+    fn a_total_sell_fee_has_no_reachable_break_even() {
+        let (_, ask) = ask_for(100.0, 0.0, 100.0, 0.0);
+        assert!(ask.is_infinite(), "expected no finite price, got {ask}");
     }
 }

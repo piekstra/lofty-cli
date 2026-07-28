@@ -57,6 +57,7 @@ $ lofty rewards history --since <ms>    # your reward payouts
 $ lofty rewards reconcile               # audit payouts: totals, math check, gap detection
 $ lofty account balance|positions|trades
 $ lofty account coverage                # what's reserved backing your bids vs free to spend
+$ lofty account breakeven --margin 5    # fee-inclusive sell price (basis hides the buy fee)
 $ lofty orders list|get|create|cancel   # mutations confirm, or --force
 $ lofty amm pools|quote|swap            # swap needs --max-usdc / --min-usdc
 $ lofty api GET /public/v1/amm/pools    # raw passthrough (Bearer attached)
@@ -136,6 +137,38 @@ $ lofty account coverage --spend 50
 spending $50.00 leaves $150.00 — EXCEEDS free capital
   ⚠ would uncover 01SAMPLEPROPERTY000000000A (bids $190.00)
 ```
+
+### Example — what price actually breaks even?
+
+A position's `costBasis` is what you paid **for the tokens**. The platform buy fee
+was charged *on top of* it, so it is **not** your true cost — and two fees bracket
+a round trip, both paid out of the sale:
+
+```
+trueCost = costBasis × (1 + buyFee)
+ask      = trueCost × (1 + margin) / (1 − sellFee)
+```
+
+Selling at your displayed basis therefore books a loss twice over. `breakeven`
+does the arithmetic with **live fee rates** — read from the property
+(`mtSellFeePct`) and its AMM pool (`fees.platformSell`), so it reflects the venue
+you actually trade on.
+
+The buy fee you paid depends on where you bought, which the API doesn't record —
+so both venues are priced and labelled rather than guessing. Pass `--buy-fee` if
+you know it. Numbers below are illustrative.
+
+```console
+$ lofty account breakeven --margin 5
+01SAMPLEPROPERTY000000000A: cost basis $63.68/token (excludes the buy fee) — selling on book at 3.50% fee
+ACQUIRED VIA | ASK +5.0% | BREAK-EVEN ASK | BUY FEE % | TRUE COST
+amm          | $72.75    | $69.29         | 5.00      | $66.86
+book         | $71.37    | $67.97         | 3.00      | $65.59
+```
+
+So a $63.68 basis needs **$69.29** just to break even, and **$72.75** to net 5%.
+`--sell-venue amm` prices an exit into the pool instead, `--cost` prices a
+hypothetical position, and `--sell-fee` / `--buy-fee` override the published rates.
 
 ## JSON, exit codes, limits
 
