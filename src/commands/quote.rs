@@ -8,7 +8,7 @@
 //! thing happens when you forget one.
 
 use clap::Subcommand;
-use pk_cli_core::{output, CliError};
+use pk_cli_core::CliError;
 use serde_json::{json, Value};
 
 use super::{confirm, emit, Ctx};
@@ -182,13 +182,20 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
                 match result {
                     Ok(v) => done.push(json!({"step": step, "ok": true, "result": v})),
                     Err(e) => {
-                        // Report what already happened before failing — the operator
-                        // needs to know whether a side is currently unquoted.
-                        let partial = json!({"applied": done, "failedStep": step,
-                                             "error": e.to_string()});
-                        eprintln!("\u{26a0} recenter FAILED partway — a side may now be unquoted and earning $0:");
-                        output::render(&partial);
-                        return Err(e);
+                        // A partial failure is the one moment the operator most needs
+                        // to know exactly what landed — a side may now be unquoted and
+                        // earning $0. Keep stdout to the single error DTO `fail`
+                        // emits (AGENTS.md: one tagged DTO, diagnostics → stderr), so
+                        // the detail rides along in the message and the human-readable
+                        // breakdown goes to stderr in BOTH modes.
+                        for line in partial_failure_lines(&done, step) {
+                            eprintln!("{line}");
+                        }
+                        return Err(CliError::Other(partial_failure_message(
+                            &done,
+                            step,
+                            &e.to_string(),
+                        )));
                     }
                 }
             }
@@ -198,6 +205,50 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
             Ok(())
         }
     }
+}
+
+/// One-line description of a planned step, for failure reporting.
+fn describe_step(step: &Value) -> String {
+    format!(
+        "{} {} ${:.2} x{}",
+        step.get("op").and_then(Value::as_str).unwrap_or("?"),
+        step.get("direction").and_then(Value::as_str).unwrap_or("?"),
+        step.get("price").and_then(Value::as_f64).unwrap_or(0.0),
+        step.get("quantity").and_then(Value::as_f64).unwrap_or(0.0),
+    )
+}
+
+/// Error text for a partway failure. Names what already landed and what didn't,
+/// so the message alone is enough to see whether a side is now unquoted — it has
+/// to stand on its own, because it is all the `--json` error DTO carries.
+/// Pure (unit-tested).
+fn partial_failure_message(applied: &[Value], failed: &Value, err: &str) -> String {
+    let done: Vec<String> = applied
+        .iter()
+        .filter_map(|a| a.get("step"))
+        .map(describe_step)
+        .collect();
+    format!(
+        "recenter failed partway on `{}`: {err}. Already applied: {}. A side may now be unquoted and earning $0 — check `lofty rewards eligibility` and re-post it",
+        describe_step(failed),
+        if done.is_empty() {
+            "nothing".to_string()
+        } else {
+            done.join("; ")
+        },
+    )
+}
+
+/// Human-readable diagnostic for the same failure (stderr, both output modes).
+fn partial_failure_lines(applied: &[Value], failed: &Value) -> Vec<String> {
+    let mut out =
+        vec!["\u{26a0} recenter FAILED partway — a side may now be unquoted and earning $0".into()];
+    for a in applied.iter().filter_map(|a| a.get("step")) {
+        out.push(format!("    applied: {}", describe_step(a)));
+    }
+    out.push(format!("    FAILED:  {}", describe_step(failed)));
+    out.push("    verify with `lofty rewards eligibility`, then re-post the missing side".into());
+    out
 }
 
 struct Targets {
@@ -796,6 +847,46 @@ mod tests {
         let steps = plan["steps"].as_array().unwrap();
         assert_eq!(steps[0]["op"], "cancel");
         assert_eq!(steps[1]["op"], "create");
+    }
+
+    #[test]
+    fn partial_failure_message_names_what_landed_and_what_did_not() {
+        // In --json mode this string IS the whole report (stdout carries only the
+        // single error DTO), so it has to stand alone.
+        let applied = [json!({"step": {"op": "cancel", "direction": "buy",
+                                       "price": 62.25, "quantity": 3.0}})];
+        let failed = json!({"op": "create", "direction": "buy",
+                            "price": 61.50, "quantity": 3.0});
+        let msg = partial_failure_message(&applied, &failed, "upstream 500");
+        assert!(msg.contains("create buy $61.50 x3"), "{msg}");
+        assert!(msg.contains("cancel buy $62.25 x3"), "{msg}");
+        assert!(msg.contains("upstream 500"), "{msg}");
+        assert!(msg.contains("earning $0"), "{msg}");
+        assert!(msg.contains("rewards eligibility"), "{msg}");
+    }
+
+    #[test]
+    fn partial_failure_before_anything_applied_says_nothing_landed() {
+        let failed = json!({"op": "cancel", "direction": "buy",
+                            "price": 62.25, "quantity": 3.0});
+        let msg = partial_failure_message(&[], &failed, "boom");
+        assert!(msg.contains("Already applied: nothing"), "{msg}");
+    }
+
+    #[test]
+    fn partial_failure_diagnostic_lists_every_applied_step() {
+        let applied = [json!({"step": {"op": "cancel", "direction": "buy",
+                                       "price": 62.25, "quantity": 3.0}})];
+        let failed = json!({"op": "create", "direction": "buy",
+                            "price": 61.50, "quantity": 3.0});
+        let lines = partial_failure_lines(&applied, &failed);
+        assert!(lines[0].contains("FAILED partway"));
+        assert!(lines
+            .iter()
+            .any(|l| l.contains("applied: cancel buy $62.25")));
+        assert!(lines
+            .iter()
+            .any(|l| l.contains("FAILED:  create buy $61.50")));
     }
 
     #[test]
