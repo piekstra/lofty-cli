@@ -147,54 +147,16 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
             // Only now touch the keychain/network: bad args must fail fast with a
             // usage error (exit 2) instead of an auth error — or a keychain prompt —
             // on a machine with no key stored.
+            // Same shared gather + apply path as every other primitive; a second
+            // private copy here is exactly the drift these helpers exist to stop.
             let client = ctx.client()?;
-            let program = client
-                .get("/public/v1/account/lp-programs", &[])?
-                .get("programs")
-                .and_then(Value::as_array)
-                .and_then(|a| {
-                    a.iter()
-                        .find(|p| p.get("propertyId").and_then(Value::as_str) == Some(property_id))
-                        .cloned()
-                })
-                .ok_or_else(|| {
-                    CliError::NotFound(format!("no active LP program for {property_id}"))
-                })?;
-            let mine: Vec<Value> = client
-                .get("/public/v1/orders", &[("propertyId", property_id.clone())])?
-                .get("orders")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|o| o.get("status").and_then(Value::as_str) == Some("active"))
-                .collect();
-            let book = client.get(
-                &format!("/public/v1/properties/{property_id}/orderbook"),
-                &[],
-            )?;
-            let usdc = client
-                .get("/public/v1/account/balance", &[])?
-                .get("usdc")
-                .and_then(Value::as_f64)
-                .unwrap_or(0.0);
-            let held = client
-                .get("/public/v1/account/positions", &[])?
-                .get("positions")
-                .and_then(Value::as_array)
-                .and_then(|a| {
-                    a.iter()
-                        .find(|p| p.get("propertyId").and_then(Value::as_str) == Some(property_id))
-                        .and_then(|p| p.get("currentTokens").and_then(Value::as_f64))
-                })
-                .unwrap_or(0.0);
-
+            let st = fetch_state(&client, property_id)?;
             let plan = plan_recenter(
-                &program,
-                &mine,
-                &book,
-                usdc,
-                held,
+                &st.program,
+                &st.mine,
+                &st.book,
+                st.usdc,
+                st.held,
                 Targets {
                     bid: *bid,
                     ask: *ask,
@@ -204,75 +166,15 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
                     allow_out_of_band: *allow_out_of_band,
                 },
             )?;
-
-            if !execute {
-                emit(ctx, "quote-plan", plan, |v| render_plan(v, Render::DryRun));
-                return Ok(());
-            }
-            let steps = plan
-                .get("steps")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            confirm(
+            apply_or_show(
                 ctx,
+                &client,
+                property_id,
+                plan,
+                *execute,
                 *force,
-                &format!(
-                    "recenter {property_id}: {} order operation(s) on real money",
-                    steps.len()
-                ),
-            )?;
-
-            // Per side: cancel, then re-post. Cancel-first is deliberate — posting
-            // first would double-commit capital and can breach per-property
-            // coverage, which gets BOTH orders auto-cancelled. The cost is a brief
-            // one-sided window (no atomic modify exists); if the re-post fails we
-            // say so loudly, because that window is when nothing is earning.
-            let mut done = Vec::new();
-            for step in &steps {
-                let result = match step.get("op").and_then(Value::as_str) {
-                    Some("cancel") => {
-                        let id = step
-                            .get("orderId")
-                            .and_then(Value::as_str)
-                            .unwrap_or_default();
-                        client.delete(&format!("/public/v1/orders/{id}"))
-                    }
-                    Some("create") => client.post(
-                        "/public/v1/orders",
-                        &json!({
-                            "propertyId": property_id,
-                            "direction": step.get("direction"),
-                            "price": step.get("price"),
-                            "quantity": step.get("quantity"),
-                        }),
-                    ),
-                    _ => continue,
-                };
-                match result {
-                    Ok(v) => done.push(json!({"step": step, "ok": true, "result": v})),
-                    Err(e) => {
-                        // A partial failure is the one moment the operator most needs
-                        // to know exactly what landed — a side may now be unquoted and
-                        // earning $0. Keep stdout to the single error DTO `fail`
-                        // emits (AGENTS.md: one tagged DTO, diagnostics → stderr), so
-                        // the detail rides along in the message and the human-readable
-                        // breakdown goes to stderr in BOTH modes.
-                        for line in partial_failure_lines(&done, step) {
-                            eprintln!("{line}");
-                        }
-                        return Err(CliError::Other(partial_failure_message(
-                            &done,
-                            step,
-                            &e.to_string(),
-                        )));
-                    }
-                }
-            }
-            emit(ctx, "quote-recentered", json!({"applied": done}), |v| {
-                render_plan(v, Render::Applied)
-            });
-            Ok(())
+                "recenter",
+            )
         }
 
         Cmd::Provision {
