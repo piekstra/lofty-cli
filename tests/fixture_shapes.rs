@@ -234,3 +234,53 @@ fn account_fixtures_carry_the_fields_coverage_depends_on() {
         );
     }
 }
+
+#[test]
+fn fee_rates_use_two_different_unit_conventions() {
+    // `account breakeven` reads sell/buy fees from BOTH sources, which disagree on
+    // units: the property listing publishes FRACTIONS (0.035 = 3.5%) while the AMM
+    // pool publishes PERCENTAGES (2.5 = 2.5%). Normalizing the wrong way is a
+    // silent 100x error in a price, so pin both conventions here.
+    let listing = fixture("public/property-get.json");
+    // `properties/{id}` wraps its payload in `property`; the parser accepts both.
+    let liq = listing
+        .pointer("/property/liquidity")
+        .or_else(|| listing.pointer("/liquidity"))
+        .expect("property-get has a liquidity block");
+    for field in ["mtBuyFeePct", "mtSellFeePct"] {
+        let v = liq
+            .get(field)
+            .and_then(Value::as_f64)
+            .unwrap_or_else(|| panic!("missing `{field}`"));
+        assert!(
+            v > 0.0 && v < 1.0,
+            "`{field}` = {v}: expected a FRACTION (<1)"
+        );
+    }
+
+    let pools = fixture("public/amm-pools.json");
+    let pools = pools
+        .get("pools")
+        .and_then(Value::as_array)
+        .expect("pools array");
+    assert!(!pools.is_empty());
+    for p in pools {
+        let fees = p
+            .get("fees")
+            .unwrap_or_else(|| panic!("pool missing `fees`"));
+        for field in ["platformBuy", "platformSell"] {
+            let v = fees
+                .get(field)
+                .and_then(Value::as_f64)
+                .unwrap_or_else(|| panic!("missing `{field}`"));
+            assert!(
+                v >= 1.0,
+                "`{field}` = {v}: expected a PERCENT (>=1), not a fraction"
+            );
+        }
+        assert!(
+            p.get("propertyId").and_then(Value::as_str).is_some(),
+            "pool missing `propertyId`"
+        );
+    }
+}
