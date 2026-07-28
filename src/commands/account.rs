@@ -76,7 +76,7 @@ pub enum Cmd {
 pub enum SellVenue {
     /// Marketplace limit order (`mtSellFeePct`).
     Book,
-    /// Swap into the AMM pool (`fees.platformSell`).
+    /// Swap into the AMM pool (`fees.platformSell` PLUS the pool's `fees.lp`).
     Amm,
 }
 
@@ -313,11 +313,22 @@ fn venue_fees(listing: &Value, pool: Option<&Value>) -> VenueFees {
         pool.and_then(|p| p.pointer(&format!("/fees/{k}")))
             .and_then(Value::as_f64) // pool values are already percent
     };
+    // A swap pays the platform fee AND the pool's LP fee — the pool reports them
+    // as separate lines, so the all-in rate is their sum. Confirmed against live
+    // quotes: fees.total/usdcAmount = 5.00% on a buy (platform 3 + lp 2) and
+    // ~5.5% on a sell (platform 3.5 + lp 2). Taking `platform` alone understates
+    // every AMM figure by the LP fee. The order book has no LP fee — that fee
+    // compensates AMM liquidity providers and has no order-book analogue — so the
+    // marketplace rates stand alone.
+    let amm = |k: &str| match (pct(k), pct("lp").unwrap_or(0.0)) {
+        (Some(platform), lp) => Some(platform + lp),
+        (None, _) => None,
+    };
     VenueFees {
         book_buy: frac("mtBuyFeePct"),
         book_sell: frac("mtSellFeePct"),
-        amm_buy: pct("platformBuy"),
-        amm_sell: pct("platformSell"),
+        amm_buy: amm("platformBuy"),
+        amm_sell: amm("platformSell"),
     }
 }
 
@@ -728,7 +739,8 @@ mod breakeven_tests {
         json!({"liquidity": {"mtBuyFeePct": 0.03, "mtSellFeePct": 0.035, "lpFeePct": 0.02}})
     }
     fn pool() -> Value {
-        json!({"propertyId": P, "fees": {"lp": 2.5, "platformBuy": 5.0, "platformSell": 2.5}})
+        // Real observed shape: the platform and LP fees are separate lines.
+        json!({"propertyId": P, "fees": {"lp": 2.0, "platformBuy": 3.0, "platformSell": 3.5}})
     }
     fn fees() -> VenueFees {
         venue_fees(&listing(), Some(&pool()))
@@ -748,8 +760,25 @@ mod breakeven_tests {
         let f = fees();
         assert_eq!(f.book_buy, Some(3.0));
         assert_eq!(f.book_sell, Some(3.5));
-        assert_eq!(f.amm_buy, Some(5.0));
-        assert_eq!(f.amm_sell, Some(2.5));
+        // AMM rates are all-in: platform + the pool's LP fee.
+        assert_eq!(f.amm_buy, Some(5.0)); // 3 + 2
+        assert_eq!(f.amm_sell, Some(5.5)); // 3.5 + 2
+    }
+
+    #[test]
+    fn amm_rates_include_the_pools_lp_fee() {
+        // A swap pays platform AND lp; the pool lists them separately. Taking
+        // `platform` alone understated every AMM figure by the lp fee. Verified
+        // against live quotes: fees.total/usdcAmount = 5.00% buy, ~5.5% sell.
+        let f = fees();
+        assert_eq!(f.amm_buy, Some(5.0), "buy = platform 3 + lp 2");
+        assert_eq!(f.amm_sell, Some(5.5), "sell = platform 3.5 + lp 2");
+        // A pool with no lp line is just the platform rate, not a missing rate.
+        let no_lp = json!({"propertyId": P, "fees": {"platformBuy": 3.0, "platformSell": 3.5}});
+        assert_eq!(venue_fees(&listing(), Some(&no_lp)).amm_buy, Some(3.0));
+        // No platform rate at all is genuinely unknown.
+        let empty = json!({"propertyId": P, "fees": {"lp": 2.0}});
+        assert_eq!(venue_fees(&listing(), Some(&empty)).amm_buy, None);
     }
 
     #[test]
@@ -817,12 +846,12 @@ mod breakeven_tests {
     fn selling_into_the_amm_uses_the_pool_fee() {
         let book = breakeven(P, 100.0, &fees(), 0.0, SellVenue::Book, Some(5.0), None);
         let amm = breakeven(P, 100.0, &fees(), 0.0, SellVenue::Amm, Some(5.0), None);
-        assert_eq!(book["sellFeePct"], 3.5);
-        assert_eq!(amm["sellFeePct"], 2.5);
-        // The cheaper exit fee needs a lower ask to break even.
+        assert_eq!(book["sellFeePct"], 3.5); // mtSellFeePct
+        assert_eq!(amm["sellFeePct"], 5.5); // platformSell 3.5 + lp 2
+                                            // Swapping out costs more than resting an ask, so it needs a higher price.
         assert!(
             amm["scenarios"][0]["breakEvenAsk"].as_f64().unwrap()
-                < book["scenarios"][0]["breakEvenAsk"].as_f64().unwrap()
+                > book["scenarios"][0]["breakEvenAsk"].as_f64().unwrap()
         );
     }
 
