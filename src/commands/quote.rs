@@ -254,17 +254,23 @@ fn fetch_state(client: &crate::client::LoftyClient, property_id: &str) -> Result
                 .cloned()
         })
         .ok_or_else(|| CliError::NotFound(format!("no active LP program for {property_id}")))?;
+    // Deliberately the `all=true` list filtered client-side, NOT the cheaper
+    // `?propertyId=` query: after a PARTIAL fill the property-scoped list keeps
+    // reporting the order's ORIGINAL quantity, while `all=true` and the
+    // single-order GET both report what actually remains (raw-verified 2026-07-29,
+    // same orderId: 3 vs 2 vs 2). Sizing or covering a quote off the stale number
+    // works from a position that no longer exists.
     let mine: Vec<Value> = client
-        .get(
-            "/public/v1/orders",
-            &[("propertyId", property_id.to_string())],
-        )?
+        .get("/public/v1/orders", &[("all", "true".to_string())])?
         .get("orders")
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default()
         .into_iter()
-        .filter(|o| o.get("status").and_then(Value::as_str) == Some("active"))
+        .filter(|o| {
+            o.get("status").and_then(Value::as_str) == Some("active")
+                && o.get("propertyId").and_then(Value::as_str) == Some(property_id)
+        })
         .collect();
     let book = client.get(
         &format!("/public/v1/properties/{property_id}/orderbook"),
