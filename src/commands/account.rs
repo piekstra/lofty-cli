@@ -287,14 +287,14 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
 /// listing reports fractions (`mtSellFeePct: 0.035` = 3.5%) while the AMM pool
 /// reports percentages (`fees.platformSell: 2.5` = 2.5%).
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
-struct VenueFees {
-    book_buy: Option<f64>,
-    book_sell: Option<f64>,
-    amm_buy: Option<f64>,
-    amm_sell: Option<f64>,
+pub struct VenueFees {
+    pub book_buy: Option<f64>,
+    pub book_sell: Option<f64>,
+    pub amm_buy: Option<f64>,
+    pub amm_sell: Option<f64>,
 }
 
-fn venue_fees(listing: &Value, pool: Option<&Value>) -> VenueFees {
+pub fn venue_fees(listing: &Value, pool: Option<&Value>) -> VenueFees {
     // `properties/{id}` wraps its payload in `property`; accept a bare listing too,
     // the same tolerance the orderbook parser carries for its envelope change.
     let frac = |field: &str| {
@@ -340,7 +340,12 @@ fn venue_fees(listing: &Value, pool: Option<&Value>) -> VenueFees {
 ///
 /// `costBasis` is what you paid for the tokens and EXCLUDES the platform buy
 /// fee, so pricing off it (or off any figure that omits the fee) books a loss.
-fn ask_for(cost_basis: f64, buy_fee_pct: f64, sell_fee_pct: f64, margin_pct: f64) -> (f64, f64) {
+pub fn ask_for(
+    cost_basis: f64,
+    buy_fee_pct: f64,
+    sell_fee_pct: f64,
+    margin_pct: f64,
+) -> (f64, f64) {
     let true_cost = cost_basis * (1.0 + buy_fee_pct / 100.0);
     let net = 1.0 - sell_fee_pct / 100.0;
     // A fee at/above 100% leaves nothing to net; report an unreachable price
