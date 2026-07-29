@@ -63,7 +63,7 @@ $ lofty orders list|get|create|cancel   # mutations confirm, or --force
 $ lofty quote recenter --property-id <ID> --bid <P>   # move a quote safely (dry run by default)
 $ lofty quote provision --property-id <ID> --bid <P> --ask <Q>   # post a fresh two-sided quote
 $ lofty quote pull --property-id <ID> --keep-above <P>           # stand down, keeping recovery asks
-$ lofty amm pools|quote|swap            # swap needs --max-usdc / --min-usdc
+$ lofty amm pools|quote|swap            # swap needs a slippage bound (see Safety)
 $ lofty api GET /public/v1/amm/pools    # raw passthrough (Bearer attached)
 $ lofty api --internal GET /properties/v2/marketplace   # website API (open reads)
 $ lofty catalog --group exchange        # observed endpoint inventory
@@ -266,6 +266,24 @@ cannot drift apart.
   60/min per account across keys.
 
 ## Safety
+
+**Swap slippage bounds are checked, not trusted.** Every `amm swap` prices a
+fresh quote first and compares your bound against it, reporting the tolerance it
+implies:
+
+```console
+$ lofty amm swap --pool-id <ID> --side buy --tokens 1 --max-usdc 56.00
+error: bound $56.00 is 9.2% from the live quote $51.27 — that authorises far more
+slippage than you likely intend. Use --max-slippage-pct for an exact bound, or
+--allow-high-slippage to proceed.
+```
+
+A bound is **refused above 5%** from the quote — pinned to the platform's own fee
+load (3% platform + 2% pool LP), not to taste: a tolerance wider than the entire
+fee schedule is far likelier a typo or a rounded guess than an intention. Prefer
+`--max-slippage-pct 1`, which derives the bound from the quote instead of asking
+you to pick a number. The check applies **under `--force` too**, where no prompt
+is shown and a loose bound would otherwise pass unseen.
 
 Placing orders, cancelling, and swapping are **real trades on your real
 account.** They prompt for confirmation; in scripts and agents pass `--force`
