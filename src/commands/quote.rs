@@ -38,9 +38,13 @@ pub enum Cmd {
         /// Ask size (default: keep the resting ask's quantity).
         #[arg(long, value_name = "N")]
         ask_qty: Option<u32>,
-        /// Refuse to place an ask below this price (e.g. your break-even).
+        /// Refuse to place an ask below this price. Defaults to this position's
+        /// break-even, so a quote cannot offer to sell at a loss by accident.
         #[arg(long, value_name = "USD")]
         min_ask: Option<f64>,
+        /// Allow an ask BELOW break-even — i.e. a standing offer to book a loss.
+        #[arg(long)]
+        allow_below_cost: bool,
         /// Allow a target outside the reward band (it will earn nothing).
         #[arg(long)]
         allow_out_of_band: bool,
@@ -69,9 +73,13 @@ pub enum Cmd {
         /// Tokens per side (default: the program's minContracts).
         #[arg(long, value_name = "N")]
         qty: Option<u32>,
-        /// Refuse to place the ask below this price (e.g. your break-even).
+        /// Refuse to place the ask below this price. Defaults to this position's
+        /// break-even, so a quote cannot offer to sell at a loss by accident.
         #[arg(long, value_name = "USD")]
         min_ask: Option<f64>,
+        /// Allow an ask BELOW break-even — i.e. a standing offer to book a loss.
+        #[arg(long)]
+        allow_below_cost: bool,
         /// Actually place the orders. Without this, nothing is sent.
         #[arg(long)]
         execute: bool,
@@ -129,6 +137,7 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
             bid_qty,
             ask_qty,
             min_ask,
+            allow_below_cost,
             allow_out_of_band,
             execute,
             force,
@@ -162,7 +171,14 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
                     ask: *ask,
                     bid_qty: *bid_qty,
                     ask_qty: *ask_qty,
-                    min_ask: *min_ask,
+                    // An explicit floor wins; otherwise default to break-even so a
+                    // quote cannot offer to sell at a loss by omission. Opting out
+                    // has to be deliberate.
+                    min_ask: min_ask.or(if *allow_below_cost {
+                        None
+                    } else {
+                        st.break_even
+                    }),
                     allow_out_of_band: *allow_out_of_band,
                 },
             )?;
@@ -183,6 +199,7 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
             ask,
             qty,
             min_ask,
+            allow_below_cost,
             execute,
             force,
         } => {
@@ -202,7 +219,12 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
             }
             let client = ctx.client()?;
             let st = fetch_state(&client, property_id)?;
-            let plan = plan_provision(&st, *bid, *ask, *qty, *min_ask)?;
+            let floor = min_ask.or(if *allow_below_cost {
+                None
+            } else {
+                st.break_even
+            });
+            let plan = plan_provision(&st, *bid, *ask, *qty, floor)?;
             apply_or_show(
                 ctx,
                 &client,
@@ -241,6 +263,10 @@ struct State {
     book: Value,
     usdc: f64,
     held: f64,
+    /// Lowest ask that still clears cost, from this position's own basis and the
+    /// property's published fees. `None` when nothing is held (no basis exists,
+    /// so there is no floor to infer — better than inventing one).
+    break_even: Option<f64>,
 }
 
 fn fetch_state(client: &crate::client::LoftyClient, property_id: &str) -> Result<State, CliError> {
@@ -281,22 +307,53 @@ fn fetch_state(client: &crate::client::LoftyClient, property_id: &str) -> Result
         .get("usdc")
         .and_then(Value::as_f64)
         .unwrap_or(0.0);
-    let held = client
+    let position = client
         .get("/public/v1/account/positions", &[])?
         .get("positions")
         .and_then(Value::as_array)
         .and_then(|a| {
             a.iter()
                 .find(|p| p.get("propertyId").and_then(Value::as_str) == Some(property_id))
-                .and_then(|p| p.get("currentTokens").and_then(Value::as_f64))
-        })
+                .cloned()
+        });
+    let held = position
+        .as_ref()
+        .and_then(|p| p.get("currentTokens").and_then(Value::as_f64))
         .unwrap_or(0.0);
+
+    // Break-even floor, reusing the fee/cost math `account breakeven` already
+    // owns rather than keeping a second copy of it. `costBasis` is per token in
+    // CENTS and EXCLUDES the buy fee, which `ask_for` grosses up. The buy side is
+    // priced at the AMM rate — the dearer acquisition — so the floor stays
+    // conservative rather than flattering.
+    let break_even = match &position {
+        Some(p) if held > 0.0 => {
+            let basis = p.get("costBasis").and_then(Value::as_f64).unwrap_or(0.0) / 100.0;
+            let listing = client.get(&format!("/public/v1/properties/{property_id}"), &[])?;
+            let pools = client
+                .get("/public/v1/amm/pools", &[])?
+                .get("pools")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let pool = pools
+                .iter()
+                .find(|x| x.get("propertyId").and_then(Value::as_str) == Some(property_id));
+            let fees = super::account::venue_fees(&listing, pool);
+            match (basis > 0.0, fees.amm_buy, fees.book_sell) {
+                (true, Some(bf), Some(sf)) => Some(super::account::ask_for(basis, bf, sf, 0.0).1),
+                _ => None,
+            }
+        }
+        _ => None,
+    };
     Ok(State {
         program,
         mine,
         book,
         usdc,
         held,
+        break_even,
     })
 }
 
@@ -1163,6 +1220,39 @@ mod tests {
     }
 
     #[test]
+    fn the_ask_floor_defaults_to_break_even_so_omission_is_safe() {
+        // The floor must apply when nobody remembers to pass it — that omission is
+        // exactly how a below-cost ask got left resting and filled at a loss.
+        // Our own $53 ask sits in the book, so mid is $51.50 and the band is
+        // [$49.50, $53.50]; break-even is set at $52.00.
+        let mine = [order("A1", "sell", 53.0, 4.0)];
+        let mut st = state(&mine, 1000.0, 10.0);
+        st.break_even = Some(52.00);
+        let floor: Option<f64> = None::<f64>.or(st.break_even); // what run() computes
+        let plan = |ask: f64, f: Option<f64>| {
+            plan_recenter(
+                &st.program,
+                &st.mine,
+                &st.book,
+                st.usdc,
+                st.held,
+                Targets {
+                    ask: Some(ask),
+                    min_ask: f,
+                    ..targets()
+                },
+            )
+        };
+        // Below the floor, with NO --min-ask passed: refused anyway.
+        let e = plan(51.50, floor).unwrap_err();
+        assert!(format!("{e:?}").contains("min-ask"), "{e:?}");
+        // Above the floor and in band: proceeds.
+        assert!(plan(52.50, floor).is_ok());
+        // --allow-below-cost drops the floor — the opt-out has to be deliberate.
+        assert!(plan(51.50, None).is_ok());
+    }
+
+    #[test]
     fn min_ask_blocks_a_below_cost_sell() {
         let mine = [order("A1", "sell", 53.0, 4.0)];
         let e = plan_recenter(
@@ -1255,6 +1345,7 @@ mod tests {
             book: book(mine),
             usdc,
             held,
+            break_even: None,
         }
     }
 
