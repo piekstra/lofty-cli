@@ -52,3 +52,28 @@ $ cargo run -- <command>
 Use the [issue templates](https://github.com/piekstra/lofty-cli/issues/new/choose).
 For anything involving an account or a key, **redact** ids, balances, and the
 key itself before pasting output.
+
+## Privacy gate (required)
+
+This repo is public. Enable the pre-commit gate in every clone — hooks are not
+cloned, so this is per-checkout:
+
+```console
+$ git config core.hooksPath .githooks
+```
+
+Two hooks share one scanner. `pre-commit` scans the staged diff; `commit-msg`
+scans the message — separate because **the message does not exist during
+`pre-commit`**, so checking it there reads the *previous* commit's text.
+
+It blocks API keys, emails, account-shaped UUIDs, `.cache/` files, Claude session
+links or attribution trailers, and dollar figures in a message that aren't marked
+illustrative. Hooks can't see a **PR body or release note**, which is where real
+holdings once reached this repo, so check those by hand before publishing:
+
+```console
+$ gh pr view <N> --json body --jq .body | .githooks/privacy-scan text
+```
+
+Use invented figures in all messages and docs. Never real balances, cost bases,
+order ids, or holdings.

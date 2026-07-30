@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# Shared privacy scanner for a PUBLIC repo. Three entry points use it:
+#   privacy-scan diff            # staged changes      (pre-commit hook)
+#   privacy-scan msg <file>      # a commit message    (commit-msg hook)
+#   privacy-scan text            # stdin: PR body, release note, any prose
+#
+# It exists because memory alone already failed: real holdings and a wallet
+# balance reached public PR bodies, and every commit carried a session-link
+# trailer. Pattern-based on purpose — a denylist of the owner's real values would
+# itself be the leak it is meant to prevent.
+#
+# Override once, when certain:  ALLOW_PRIVACY_RISK=1 git commit ...
+set -uo pipefail
+
+MODE="${1:-diff}"
+case "$MODE" in
+  # Exclude .githooks/ from the scan: this scanner's own source necessarily
+  # contains every pattern it looks for, so including it self-matches forever.
+  diff) HAY="$(git diff --cached -U0 -- . ':(exclude).githooks/' 2>/dev/null || true)"; CHECK_FILES=1; CHECK_MONEY=0 ;;
+  msg)  HAY="$(cat "${2:?msg needs a file}" 2>/dev/null || true)"; CHECK_FILES=0; CHECK_MONEY=1 ;;
+  text) HAY="$(cat)"; CHECK_FILES=0; CHECK_MONEY=1 ;;
+  *)    echo "usage: privacy-scan {diff|msg <file>|text}" >&2; exit 2 ;;
+esac
+
+fail=0
+note() { printf '  \xe2\x9c\x97 %s\n' "$1" >&2; fail=1; }
+
+# ── Hard blocks: never legitimate in a public repo ───────────────────────────
+grep -qE 'lofty_(live|test)_[A-Za-z0-9]{20,}' <<<"$HAY" \
+  && note "an API key (lofty_live_/lofty_test_)"
+grep -qE 'claude\.ai/(code/)?session' <<<"$HAY" \
+  && note "a Claude session link — sessions are private, never reference them publicly"
+grep -qiE '^[[:space:]]*Claude-Session:' <<<"$HAY" \
+  && note "a Claude-Session trailer (attribution must stay off)"
+grep -qiE 'Co-Authored-By:.*claude' <<<"$HAY" \
+  && note "a Claude co-author trailer (attribution must stay off)"
+grep -qE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' <<<"$HAY" \
+  && note "an email address"
+grep -qE '\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b' <<<"$HAY" \
+  && note "a UUID — the account id has this shape"
+
+if [ "$CHECK_FILES" = 1 ]; then
+  git diff --cached --name-only 2>/dev/null | grep -qE '(^|/)\.cache/' \
+    && note "a file under .cache/ — holdings, P&L and the ledger live there and must stay local"
+fi
+
+# ── Money: what actually leaked ──────────────────────────────────────────────
+# Real amounts tied a named public account to its holdings. Allowed only when the
+# text says the figures are invented, which forces a decision instead of a habit.
+if [ "$CHECK_MONEY" = 1 ] && grep -qE '\$[0-9]' <<<"$HAY" \
+   && ! grep -qiE 'illustrative|invented|sample|example|hypothetical' <<<"$HAY"; then
+  note "dollar figures with no 'illustrative' note — if they are real account numbers, do not publish them; if invented, say so"
+fi
+
+if [ "$fail" -ne 0 ]; then
+  if [ "${ALLOW_PRIVACY_RISK:-}" = "1" ]; then
+    echo "  (ALLOW_PRIVACY_RISK=1 — proceeding despite the findings above)" >&2
+    exit 0
+  fi
+  echo "" >&2
+  echo "blocked by .githooks/privacy-scan ($MODE) — public-repo privacy gate" >&2
+  echo "Use invented figures in messages and docs; keep balances, cost bases," >&2
+  echo "order ids and holdings out entirely.  Override: ALLOW_PRIVACY_RISK=1" >&2
+  exit 1
+fi
+exit 0
