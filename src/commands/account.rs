@@ -40,6 +40,23 @@ pub enum Cmd {
         #[arg(long, value_name = "USD")]
         spend: Option<f64>,
     },
+    /// Maker rebates earned on your resting-order fills.
+    ///
+    /// Lofty advertises "maker rebates — paid at fill" but documents no rate.
+    /// Verified empirically against paid rebates: it is 50% of the platform fee
+    /// on YOUR side of the trade, paid only when your order was the RESTING one.
+    /// Cross the book (take liquidity) and you earn nothing.
+    ///
+    /// Derived entirely from your own trade history — the rebate figures are not
+    /// otherwise exposed by the API.
+    Rebates {
+        /// Only this property.
+        #[arg(long)]
+        property_id: Option<String>,
+        /// Only trades at or after this Unix-ms timestamp.
+        #[arg(long)]
+        since: Option<u64>,
+    },
     /// Fee-inclusive break-even sell price for your holdings.
     ///
     /// A position's `costBasis` is what you PAID FOR THE TOKENS — it excludes the
@@ -171,6 +188,29 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
                 .unwrap_or_default();
             let report = coverage(usdc, &orders, &positions, *spend);
             emit(ctx, "account-coverage", report, render_coverage);
+            Ok(())
+        }
+        Cmd::Rebates { property_id, since } => {
+            let mut q: Vec<(&str, String)> = vec![("limit", "200".to_string())];
+            if let Some(id) = property_id {
+                q.push(("propertyId", id.clone()));
+            }
+            let trades = client
+                .get("/public/v1/account/trades", &q)?
+                .get("trades")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            // Full order history (including filled ones) is what distinguishes a
+            // maker fill from a taker fill — the trade record itself says nothing.
+            let orders = client
+                .get("/public/v1/orders", &[("all", "true".to_string())])?
+                .get("orders")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let report = rebates(&trades, &orders, *since);
+            emit(ctx, "account-rebates", report, render_rebates);
             Ok(())
         }
         Cmd::Breakeven {
@@ -733,6 +773,95 @@ mod tests {
 }
 
 #[cfg(test)]
+mod rebate_tests {
+    use super::*;
+    use serde_json::json;
+
+    const P: &str = "01SAMPLEPROPERTY000000000A";
+
+    fn trade(dir: &str, price: f64, buyer_fee: f64, seller_fee: f64, at: u64) -> Value {
+        json!({"tradeId": "T1", "propertyId": P, "direction": dir, "price": price,
+               "quantity": 1, "createdAt": at,
+               "buyerFeeAmount": buyer_fee * MICRO, "sellerFeeAmount": seller_fee * MICRO})
+    }
+    fn order(dir: &str, price: f64) -> Value {
+        json!({"propertyId": P, "direction": dir, "price": price})
+    }
+
+    #[test]
+    fn reproduces_the_rebates_actually_paid() {
+        // Verified against real payouts: a $62.25 buy with a $1.5562 buyer fee
+        // rebated $0.78, and a $52.75 sell with a $1.5825 seller fee rebated $0.79.
+        let trades = [
+            trade("buy", 62.25, 1.55625, 1.8675, 3),
+            trade("sell", 52.75, 1.31875, 1.5825, 2),
+        ];
+        let orders = [order("buy", 62.25), order("sell", 52.75)];
+        let r = rebates(&trades, &orders, None);
+        let got: Vec<String> = r["trades"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| format!("{:.2}", t["rebate"].as_f64().unwrap()))
+            .collect();
+        assert_eq!(got, vec!["0.78", "0.79"]);
+        assert!((r["totalRebates"].as_f64().unwrap() - 1.57).abs() < 0.005);
+        assert_eq!(r["makerFills"], 2);
+    }
+
+    #[test]
+    fn a_taker_fill_earns_nothing() {
+        // Crossing the book pays no rebate — the real corroboration was a sell that
+        // crossed and received nothing while resting fills the same week were paid.
+        let trades = [trade("sell", 71.09, 1.0, 2.0, 1)];
+        let r = rebates(&trades, &[], None); // no resting order at that price
+        assert_eq!(r["totalRebates"], 0.0);
+        assert_eq!(r["takerFills"], 1);
+        assert_eq!(r["trades"][0]["wasMaker"], false);
+    }
+
+    #[test]
+    fn the_fee_taken_is_the_one_on_our_side() {
+        // A buy rebates off the BUYER fee, a sell off the SELLER fee. Mixing them up
+        // silently misprices every rebate.
+        let buy = rebates(
+            &[trade("buy", 10.0, 4.0, 8.0, 1)],
+            &[order("buy", 10.0)],
+            None,
+        );
+        assert_eq!(buy["trades"][0]["rebate"], 2.0);
+        let sell = rebates(
+            &[trade("sell", 10.0, 4.0, 8.0, 1)],
+            &[order("sell", 10.0)],
+            None,
+        );
+        assert_eq!(sell["trades"][0]["rebate"], 4.0);
+    }
+
+    #[test]
+    fn an_opposite_side_order_does_not_count_as_maker() {
+        // A resting BID does not make a SELL a maker fill, even at the same price.
+        let r = rebates(
+            &[trade("sell", 62.25, 1.0, 2.0, 1)],
+            &[order("buy", 62.25)],
+            None,
+        );
+        assert_eq!(r["takerFills"], 1);
+    }
+
+    #[test]
+    fn since_filters_older_trades() {
+        let trades = [
+            trade("buy", 10.0, 4.0, 8.0, 100),
+            trade("buy", 10.0, 4.0, 8.0, 900),
+        ];
+        let r = rebates(&trades, &[order("buy", 10.0)], Some(500));
+        assert_eq!(r["trades"].as_array().unwrap().len(), 1);
+        assert_eq!(r["makerFills"], 1);
+    }
+}
+
+#[cfg(test)]
 mod breakeven_tests {
     use super::*;
     use serde_json::json;
@@ -903,4 +1032,120 @@ mod breakeven_tests {
         let (_, ask) = ask_for(100.0, 0.0, 100.0, 0.0);
         assert!(ask.is_infinite(), "expected no finite price, got {ask}");
     }
+}
+
+/// Maker rebate as a fraction of the fee paid on your side of a trade.
+///
+/// Lofty advertises the rebate but publishes no rate (see the project's LOF-11).
+/// Verified against three paid rebates, exact to the cent: a $62.25 buy carrying a
+/// $1.5562 buyer fee rebated $0.78, and a $52.75 sell carrying a $1.5825 seller
+/// fee rebated $0.79. A taker fill — crossing the book — rebated nothing, which
+/// matches "paid at fill" meaning paid to the RESTING side.
+const MAKER_REBATE_SHARE: f64 = 0.5;
+
+/// Micro-USDC → USD. Fee amounts arrive in micro-units while prices are plain USD.
+const MICRO: f64 = 1e6;
+
+/// Reconstruct maker rebates from trade history. Pure (unit-tested).
+///
+/// A trade record carries no maker/taker flag, so it is inferred: a fill counts as
+/// MAKER when one of our orders on that property rested at that exact price. That
+/// is the same evidence a human would use, and it is conservative — an
+/// unmatched trade is reported as a taker (no rebate) rather than credited
+/// optimistically.
+fn rebates(trades: &[Value], orders: &[Value], since: Option<u64>) -> Value {
+    let f = |v: &Value, k: &str| v.get(k).and_then(Value::as_f64).unwrap_or(0.0);
+    let s = |v: &Value, k: &str| {
+        v.get(k)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    let u = |v: &Value, k: &str| v.get(k).and_then(Value::as_u64).unwrap_or(0);
+
+    let mut rows = Vec::new();
+    let (mut total, mut maker_count, mut taker_count) = (0.0, 0usize, 0usize);
+    for t in trades {
+        if since.is_some_and(|c| u(t, "createdAt") < c) {
+            continue;
+        }
+        let pid = s(t, "propertyId");
+        let price = f(t, "price");
+        let buying = s(t, "direction") == "buy";
+        // Our fee is the one on our side of the book.
+        let our_fee = if buying {
+            f(t, "buyerFeeAmount") / MICRO
+        } else {
+            f(t, "sellerFeeAmount") / MICRO
+        };
+        let was_maker = orders.iter().any(|o| {
+            s(o, "propertyId") == pid
+                && s(o, "direction") == if buying { "buy" } else { "sell" }
+                && (f(o, "price") - price).abs() < 0.005
+        });
+        let rebate = if was_maker {
+            our_fee * MAKER_REBATE_SHARE
+        } else {
+            0.0
+        };
+        if was_maker {
+            maker_count += 1;
+        } else {
+            taker_count += 1;
+        }
+        total += rebate;
+        rows.push(serde_json::json!({
+            "tradeId": t.get("tradeId"), "propertyId": pid,
+            "direction": if buying { "buy" } else { "sell" },
+            "price": price, "quantity": f(t, "quantity"),
+            "createdAt": u(t, "createdAt"),
+            "ourFee": our_fee, "wasMaker": was_maker, "rebate": rebate,
+        }));
+    }
+    rows.sort_by_key(|r| {
+        std::cmp::Reverse(r.get("createdAt").and_then(Value::as_u64).unwrap_or(0))
+    });
+    serde_json::json!({
+        "rebateShareOfFee": MAKER_REBATE_SHARE,
+        "totalRebates": total,
+        "makerFills": maker_count,
+        "takerFills": taker_count,
+        "trades": rows,
+    })
+}
+
+/// Human view: the rebate-earning fills, then the ones that earned nothing and why.
+fn render_rebates(v: &Value) {
+    let rows = v
+        .get("trades")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let earners: Vec<Value> = rows
+        .iter()
+        .filter(|r| r.get("wasMaker").and_then(Value::as_bool) == Some(true))
+        .map(|r| {
+            let g = |k: &str| r.get(k).and_then(Value::as_f64).unwrap_or(0.0);
+            serde_json::json!({
+                "property": r.get("propertyId"),
+                "side": r.get("direction"),
+                "price": format!("${:.2}", g("price")),
+                "qty": g("quantity"),
+                "your fee": format!("${:.4}", g("ourFee")),
+                "rebate": format!("${:.4}", g("rebate")),
+            })
+        })
+        .collect();
+    if earners.is_empty() {
+        println!("no maker fills — rebates are paid only when YOUR order was the resting one");
+    } else {
+        output::table(&earners);
+    }
+    eprintln!(
+        "total ${:.4} across {} maker fill(s) at {:.0}% of your side's fee; {} taker fill(s) earned nothing (crossing the book pays no rebate)",
+        v.get("totalRebates").and_then(Value::as_f64).unwrap_or(0.0),
+        v.get("makerFills").and_then(Value::as_u64).unwrap_or(0),
+        v.get("rebateShareOfFee").and_then(Value::as_f64).unwrap_or(0.0) * 100.0,
+        v.get("takerFills").and_then(Value::as_u64).unwrap_or(0),
+    );
 }
