@@ -273,8 +273,7 @@ which is what "paid at fill" means in practice.
 $ lofty account rebates
 PRICE  | PROPERTY | QTY | REBATE  | SIDE | YOUR FEE
 $45.00 | 01SAMPLE…| 1.0 | $0.5625 | buy  | $1.1250
-total $0.5625 across 1 maker fill(s) at 50% of your side's fee; 0 taker fill(s)
-earned nothing (crossing the book pays no rebate)
+total $0.5625 across 1 maker fill(s) at 50% of your side's fee; 0 taker fill(s) earned nothing (crossing the book pays no rebate)
 ```
 
 Maker/taker isn't flagged on a trade record, so it's inferred from whether one of
