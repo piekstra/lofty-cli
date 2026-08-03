@@ -59,6 +59,7 @@ $ lofty rewards eligibility             # are your orders earning right now, and
 $ lofty account balance|positions|trades
 $ lofty account coverage                # what's reserved backing your bids vs free to spend
 $ lofty account breakeven --margin 5    # fee-inclusive sell price (basis hides the buy fee)
+$ lofty account rebates                 # maker rebates earned, derived from your fills
 $ lofty orders list|get|create|cancel   # mutations confirm, or --force
 $ lofty quote recenter --property-id <ID> --bid <P>   # move a quote safely (dry run by default)
 $ lofty quote provision --property-id <ID> --bid <P> --ask <Q>   # post a fresh two-sided quote
@@ -254,6 +255,31 @@ re-run with --execute to apply
 
 All three share one implementation of the rails (`check_placement`), so they
 cannot drift apart.
+
+### Example — maker rebates, without the undocumented rate
+
+Lofty advertises "maker rebates — paid at fill" but publishes no rate anywhere,
+and the amounts appear only on the signed-in account page — not in the API. The
+rate is recoverable from your own fills, because `account trades` carries
+`buyerFeeAmount` and `sellerFeeAmount`:
+
+**A maker rebate is 50% of the platform fee on your side of the trade**, paid only
+when your order was the *resting* one. Verified to the cent against paid rebates —
+a $62.25 buy with a $1.5562 buyer fee rebated $0.78; a $52.75 sell with a $1.5825
+seller fee rebated $0.79 — and a fill that *crossed* the book rebated nothing,
+which is what "paid at fill" means in practice.
+
+```console
+$ lofty account rebates
+PRICE  | PROPERTY | QTY | REBATE  | SIDE | YOUR FEE
+$45.00 | 01SAMPLE…| 1.0 | $0.5625 | buy  | $1.1250
+total $0.5625 across 1 maker fill(s) at 50% of your side's fee; 0 taker fill(s)
+earned nothing (crossing the book pays no rebate)
+```
+
+Maker/taker isn't flagged on a trade record, so it's inferred from whether one of
+your orders rested at that exact price and side. Unmatched trades are reported as
+takers rather than optimistically credited. Figures above are illustrative.
 
 ## JSON, exit codes, limits
 
