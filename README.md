@@ -267,6 +267,28 @@ cannot drift apart.
 
 ## Safety
 
+**Limit orders are priced against the market before they are sent.** `orders
+create` reads BOTH the order book and the trades feed — they disagree, and
+trusting the wrong one is how a sell got priced 20% under the market on an
+illiquid book and filled instantly:
+
+```console
+$ lofty orders create --property-id <ID> --direction sell --price 57.12 --quantity 1
+error: sell at $57.12 is AT OR BELOW the best bid $71.09 — it will fill
+immediately as a taker, not rest on the book
+  orderbook   bid $50.00  ask —
+  trades feed bid $71.09  ask $71.43
+  last trade  $67.50   (42 recent print(s))
+
+If you understand and accept that this may lose money against the listed price,
+re-run with --accept-below-market.
+```
+
+It refuses an order that would cross, that sits more than 5% worse than the best
+reference (highest bid / lowest ask / last print), **or that cannot be priced at
+all because the property has no trade history** — an empty tape is a reason to
+stop, not to shrug. `--accept-below-market` is the explicit acknowledgement.
+
 **Swap slippage bounds are checked, not trusted.** Every `amm swap` prices a
 fresh quote first and compares your bound against it, reporting the tolerance it
 implies:
