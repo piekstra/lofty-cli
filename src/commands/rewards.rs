@@ -260,15 +260,19 @@ fn score_order(dist_from_mid: f64, allowed_spread: f64, quantity: f64) -> f64 {
 /// Evaluate one property's LP-reward eligibility. Pure (unit-tested).
 ///
 /// The published rules all have to hold at once: the position is TWO-SIDED (a
-/// bid AND an ask — one-sided liquidity earns nothing), each order is at least
-/// `minContracts`, rests within `allowedSpread` of the book mid, and is covered
-/// by live balances (bids by USDC, asks by held tokens).
+/// bid AND an ask — one-sided liquidity earns nothing), and to SCORE, an order
+/// is at least `minContracts`, rests within `allowedSpread` of the book mid, and
+/// is covered by live balances (bids by USDC, asks by held tokens).
 ///
-/// Qualifying a SIDE and SCORING are separate steps: an order that is sized and
-/// covered establishes that side exists, while only in-band orders accrue score.
-/// So a position can be two-sided and still score nothing if every in-band order
-/// is undersized — which is why the two are reported separately rather than
-/// collapsed into one boolean.
+/// Qualifying a SIDE and SCORING are separate steps with DIFFERENT thresholds:
+///   * qualifying — a covered order of at least `minTwoSidedLiquidity` shares
+///     (1 on every live program) establishes that the side exists. Neither
+///     `minContracts` nor the band applies here.
+///   * scoring — only in-band orders of at least `minContracts` accrue score.
+///
+/// So a 1-share ask parked far out of band contributes ZERO score yet still
+/// makes the position two-sided, letting the bid's score earn. Collapsing the
+/// two thresholds understates eligibility and hides live income.
 fn eligibility(program: &Value, mine: &[Value], book: &Value, usdc: f64, held: f64) -> Value {
     let f = |v: &Value, k: &str, d: f64| v.get(k).and_then(Value::as_f64).unwrap_or(d);
     let spread = f(program, "allowedSpread", 0.0);
@@ -314,8 +318,11 @@ fn eligibility(program: &Value, mine: &[Value], book: &Value, usdc: f64, held: f
         let in_band = dist <= spread;
         let big_enough = qty >= min_contracts;
         let covered = if is_buy { bids_covered } else { asks_covered };
-        // Sized + covered qualifies the SIDE; in-band additionally earns score.
-        if big_enough && covered {
+        // Being COVERED qualifies the side; the bar is `minTwoSidedLiquidity`
+        // (1 on every live program), NOT `minContracts`. Gating this on
+        // `big_enough` conflated the two thresholds and reported properties as
+        // one-sided that Lofty was actually paying — see the regression test.
+        if covered {
             if is_buy {
                 bid_shares += qty;
             } else {
@@ -732,6 +739,32 @@ mod eligibility_tests {
     }
 
     #[test]
+    fn a_tiny_out_of_band_ask_still_qualifies_the_side() {
+        // Regression, confirmed against observed payouts: a 4-share in-band bid
+        // plus a 1-share ask parked far out of band — the ask failing BOTH
+        // minContracts and the band. This shape reports as "not two-sided, $0"
+        // if the two thresholds are conflated, yet the program pays it: the
+        // bid's score earns because minTwoSidedLiquidity (1), not minContracts,
+        // decides whether a side exists.
+        let mine = [order("buy", 50.0, 4.0), order("sell", 60.0, 1.0)];
+        let r = eligibility(&program(), &mine, &book(vec![], vec![]), 1000.0, 10.0);
+        assert_eq!(r["twoSided"], true);
+        assert_eq!(r["earning"], true);
+        assert!(r["expectedDaily"].as_f64().unwrap() > 0.0);
+        // ...while contributing no score of its own.
+        let ask = r["orders"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|o| o["direction"] == "sell")
+            .cloned()
+            .unwrap();
+        assert_eq!(ask["scoring"], false);
+        assert_eq!(ask["meetsMinContracts"], false);
+        assert_eq!(ask["inBand"], false);
+    }
+
+    #[test]
     fn a_bid_alone_earns_nothing_however_good_it_is() {
         // The single most expensive mistake: one-sided liquidity earns NOTHING,
         // even resting exactly at mid with plenty of size and cover.
@@ -752,13 +785,18 @@ mod eligibility_tests {
     }
 
     #[test]
-    fn an_undersized_order_cannot_qualify_its_side() {
-        // 2 tokens against minContracts 4 → the ask side never qualifies.
+    fn an_undersized_order_qualifies_its_side_but_never_scores() {
+        // 2 tokens against minContracts 4. This previously asserted the side did
+        // NOT qualify. That was wrong and it was expensive: properties showed as
+        // earning $0 while Lofty was paying them hourly. minContracts gates
+        // SCORE; minTwoSidedLiquidity (1) gates whether the side exists.
         let mine = [order("buy", 50.0, 4.0), order("sell", 52.0, 2.0)];
         let r = eligibility(&program(), &mine, &book(vec![], vec![]), 1000.0, 10.0);
-        assert_eq!(r["earning"], false);
+        assert_eq!(r["twoSided"], true);
+        assert_eq!(r["earning"], true); // the in-band bid scores
         let ask = &r["orders"][1];
         assert_eq!(ask["meetsMinContracts"], false);
+        assert_eq!(ask["scoring"], false); // the undersized ask contributes none
         assert!(ask["issues"]
             .as_array()
             .unwrap()
