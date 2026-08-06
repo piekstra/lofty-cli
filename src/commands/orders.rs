@@ -158,13 +158,23 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
                 eprintln!("proceeding: --accept-below-market was given");
             }
 
+            // Reward-scoring advisory. Deliberately NOT a rail: a sub-minimum
+            // order is legitimate as often as it is a mistake (see the doc on
+            // min_contracts_note), so state the consequence and let the operator
+            // judge. Printed before the prompt so --force runs still see it.
+            let min_note = min_contracts_note(&client, property_id, *quantity);
+            if let Some(note) = &min_note {
+                eprintln!("\u{26a0} {note}");
+            }
+
             confirm(
                 ctx,
                 *force,
                 &format!(
-                    "place limit {direction} of {quantity} token(s) @ ${price:.2} on {property_id} (total ${:.2}){}",
+                    "place limit {direction} of {quantity} token(s) @ ${price:.2} on {property_id} (total ${:.2}){}{}",
                     *price * f64::from(*quantity),
                     market.summary_suffix(),
+                    min_note.map(|n| format!("\n\u{26a0} {n}")).unwrap_or_default(),
                 ),
             )?;
             let mut body = json!({
@@ -208,6 +218,46 @@ struct MarketView {
 /// Tolerance before a price counts as "materially worse than the market". Wide
 /// enough that ordinary spread does not trip it, tight enough that a fat-finger
 /// or a stale-endpoint read does.
+/// Advisory when an order is smaller than its LP-reward program's `minContracts`.
+///
+/// Qualifying a side and SCORING use different bars. A covered order of at least
+/// `minTwoSidedLiquidity` (1 on every observed program) establishes that the side
+/// exists; only orders of at least `minContracts` accrue score. So a sub-minimum
+/// order is legal and sometimes exactly right — a 1-token ask is the cheapest way
+/// to hold a side open — but a sub-minimum BID ties up USDC and earns nothing,
+/// which is easy to do by accident and invisible afterwards.
+///
+/// Intent is unknowable from here, so this returns a note rather than an error.
+/// Returns None when the property runs no reward program, when the order clears
+/// the bar, or when the lookup fails — never blocks an order on a failed read.
+fn min_contracts_note(
+    client: &crate::client::LoftyClient,
+    property_id: &str,
+    quantity: u32,
+) -> Option<String> {
+    let programs = client.get("/public/v1/account/lp-programs", &[]).ok()?;
+    min_contracts_note_from(&programs, property_id, quantity)
+}
+
+/// Pure half of [`min_contracts_note`], split out so the rule is testable without
+/// a client. Takes the `/account/lp-programs` payload verbatim.
+fn min_contracts_note_from(programs: &Value, property_id: &str, quantity: u32) -> Option<String> {
+    let min = programs
+        .get("programs")?
+        .as_array()?
+        .iter()
+        .find(|p| p.get("propertyId").and_then(Value::as_str) == Some(property_id))?
+        .get("minContracts")
+        .and_then(Value::as_f64)?;
+    (f64::from(quantity) < min).then(|| {
+        format!(
+            "{quantity} token(s) is below this property's minContracts ({min:.0}). \
+             The order will QUALIFY its side for two-sided eligibility but score \
+             NOTHING toward LP rewards. Use at least {min:.0} to earn on it."
+        )
+    })
+}
+
 const MARKET_TOLERANCE_PCT: f64 = 5.0;
 
 fn market_view(book: Option<&Value>, trades: Option<&Value>) -> MarketView {
@@ -457,5 +507,39 @@ mod tests {
         let t = feed(71.09, 71.43, vec![(67.50, 1)]);
         let d = market_view(Some(&b), Some(&t)).describe();
         assert!(d.contains("50.00") && d.contains("71.09"), "{d}");
+    }
+
+    fn lp_programs() -> Value {
+        json!({"programs": [
+            {"propertyId": "01PROPA", "minContracts": 4.0, "minTwoSidedLiquidity": 1.0},
+            {"propertyId": "01PROPB", "minContracts": 2.0, "minTwoSidedLiquidity": 1.0}
+        ]})
+    }
+
+    #[test]
+    fn sub_min_contracts_order_is_flagged_as_qualifying_but_not_scoring() {
+        // The mistake this exists to catch: 3 tokens on a minContracts-4 program.
+        // The order rests, qualifies the side, and earns nothing — silently.
+        let n = min_contracts_note_from(&lp_programs(), "01PROPA", 3).expect("should warn");
+        assert!(n.contains("below"), "{n}");
+        assert!(n.contains("QUALIFY"), "{n}");
+        assert!(n.contains("NOTHING"), "{n}");
+    }
+
+    #[test]
+    fn an_order_at_or_above_min_contracts_is_silent() {
+        assert!(min_contracts_note_from(&lp_programs(), "01PROPA", 4).is_none());
+        assert!(min_contracts_note_from(&lp_programs(), "01PROPA", 9).is_none());
+        // Thresholds differ per property: 3 is fine on a minContracts-2 program.
+        assert!(min_contracts_note_from(&lp_programs(), "01PROPB", 3).is_none());
+    }
+
+    #[test]
+    fn a_property_with_no_reward_program_never_warns() {
+        // Most properties run no program at all; they must not be nagged.
+        assert!(min_contracts_note_from(&lp_programs(), "01NOTINPROGRAM", 1).is_none());
+        // Nor should a malformed or empty payload block an order.
+        assert!(min_contracts_note_from(&json!({}), "01PROPA", 1).is_none());
+        assert!(min_contracts_note_from(&json!({"programs": []}), "01PROPA", 1).is_none());
     }
 }
