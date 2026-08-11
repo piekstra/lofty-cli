@@ -210,9 +210,37 @@ struct MarketView {
     feed_bid: Option<f64>,
     feed_ask: Option<f64>,
     last_trade: Option<f64>,
+    /// When the last print happened (epoch ms). A single stale print can dominate
+    /// the reference and veto a sane order, so its AGE is part of the evidence.
+    last_trade_at: Option<u64>,
+    /// Median of the most recent prints. One print is an anecdote; the median is
+    /// what the property actually changes hands at, and the two can diverge
+    /// sharply on thin books.
+    median_recent: Option<f64>,
+    /// Low/high of that same recent window — shows whether the median is a tight
+    /// consensus or the midpoint of a wide scatter.
+    recent_low_high: Option<(f64, f64)>,
     /// Trades seen at all. An empty tape means the price is not discoverable
     /// here, which is a reason to stop rather than to shrug.
     trade_count: usize,
+}
+
+/// How many recent prints summarise "where this actually trades".
+const RECENT_WINDOW: usize = 20;
+
+/// Median of a price sample. Returns None for an empty sample.
+fn median(xs: &[f64]) -> Option<f64> {
+    if xs.is_empty() {
+        return None;
+    }
+    let mut v = xs.to_vec();
+    v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let n = v.len();
+    Some(if n % 2 == 1 {
+        v[n / 2]
+    } else {
+        (v[n / 2 - 1] + v[n / 2]) / 2.0
+    })
 }
 
 /// Tolerance before a price counts as "materially worse than the market". Wide
@@ -291,8 +319,26 @@ fn market_view(book: Option<&Value>, trades: Option<&Value>) -> MarketView {
                 .collect()
         })
         .unwrap_or_default();
-    let last_trade = recent.iter().max_by_key(|(_, t)| *t).map(|(p, _)| *p);
+    let newest = recent.iter().max_by_key(|(_, t)| *t);
+    let last_trade = newest.map(|(p, _)| *p);
+    let last_trade_at = newest.map(|(_, t)| *t).filter(|t| *t > 0);
+    // Summarise the recent window by TIME, not by array order — the payload is
+    // not guaranteed sorted, and using its order silently mixes old prints in.
+    let mut by_time: Vec<(f64, u64)> = recent.clone();
+    by_time.sort_by_key(|(_, t)| std::cmp::Reverse(*t));
+    let window: Vec<f64> = by_time
+        .iter()
+        .take(RECENT_WINDOW)
+        .map(|(p, _)| *p)
+        .collect();
+    let median_recent = median(&window);
+    let recent_low_high = window.iter().fold(None, |acc: Option<(f64, f64)>, p| {
+        Some(acc.map_or((*p, *p), |(lo, hi)| (lo.min(*p), hi.max(*p))))
+    });
     MarketView {
+        last_trade_at,
+        median_recent,
+        recent_low_high,
         book_bid: side(book, "bids", "buyOrders", true),
         book_ask: side(book, "asks", "sellOrders", false),
         feed_bid: trades
@@ -386,14 +432,43 @@ impl MarketView {
     /// the failure mode, so hiding it behind one number would repeat it.
     fn describe(&self) -> String {
         let f = |o: Option<f64>| o.map_or("—".into(), |v| format!("${v:.2}"));
+        let age = self
+            .last_trade_at
+            .and_then(|t| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .ok()
+                    .map(|d| d.as_millis() as u64)
+                    .and_then(|now| now.checked_sub(t))
+            })
+            .map(|ms| {
+                let days = ms as f64 / 86_400_000.0;
+                if days >= 1.0 {
+                    format!(", {days:.0}d ago")
+                } else {
+                    format!(", {:.0}h ago", days * 24.0)
+                }
+            })
+            .unwrap_or_default();
+        // The recent window is the point of this block: a lone stale print can
+        // veto a sane order, and only the median plus the age reveal that.
+        let recent = match (self.median_recent, self.recent_low_high) {
+            (Some(m), Some((lo, hi))) => format!(
+                "\n  recent      median ${m:.2}  range ${lo:.2}–${hi:.2}  (last {} print(s))",
+                self.trade_count.min(RECENT_WINDOW),
+            ),
+            _ => String::new(),
+        };
         format!(
-            "  orderbook   bid {}  ask {}\n  trades feed bid {}  ask {}\n  last trade  {}   ({} recent print(s))",
+            "  orderbook   bid {}  ask {}\n  trades feed bid {}  ask {}\n  last trade  {}{}   ({} recent print(s)){}",
             f(self.book_bid),
             f(self.book_ask),
             f(self.feed_bid),
             f(self.feed_ask),
             f(self.last_trade),
+            age,
             self.trade_count,
+            recent,
         )
     }
 
@@ -541,5 +616,62 @@ mod tests {
         // Nor should a malformed or empty payload block an order.
         assert!(min_contracts_note_from(&json!({}), "01PROPA", 1).is_none());
         assert!(min_contracts_note_from(&json!({"programs": []}), "01PROPA", 1).is_none());
+    }
+
+    #[test]
+    fn median_handles_odd_even_and_empty() {
+        assert_eq!(median(&[]), None);
+        assert_eq!(median(&[5.0]), Some(5.0));
+        assert_eq!(median(&[3.0, 1.0, 2.0]), Some(2.0));
+        assert_eq!(median(&[4.0, 1.0, 3.0, 2.0]), Some(2.5));
+    }
+
+    #[test]
+    fn describe_surfaces_the_recent_window_not_just_the_last_print() {
+        // The live case that motivated this: two healthy quotes vetoed by a single
+        // stale outlier. The last print was $59.26 while the recent median was
+        // ~$61, and nothing in the output said so — so the operator could not tell
+        // an outlier from a genuine repricing.
+        let b = book(vec![63.55], vec![65.00]);
+        let t = feed(
+            63.66,
+            63.99,
+            vec![
+                (59.26, 9_000),
+                (61.02, 8_000),
+                (60.92, 7_000),
+                (63.20, 6_000),
+                (61.02, 5_000),
+            ],
+        );
+        let d = market_view(Some(&b), Some(&t)).describe();
+        assert!(d.contains("median"), "{d}");
+        assert!(
+            d.contains("$61.02"),
+            "median of the window should show: {d}"
+        );
+        assert!(d.contains("range"), "{d}");
+        assert!(
+            d.contains("$59.26") && d.contains("$63.20"),
+            "range ends: {d}"
+        );
+    }
+
+    #[test]
+    fn the_recent_window_is_chosen_by_time_not_array_order() {
+        // The payload is not guaranteed sorted. Taking the first N in array order
+        // would summarise arbitrary prints and quietly mislead.
+        let b = book(vec![50.0], vec![55.0]);
+        let mut prints: Vec<(f64, u64)> = (0..30).map(|i| (10.0, i as u64)).collect();
+        // Newest prints, appended LAST, all at a different price.
+        prints.extend((100..120).map(|i| (90.0, i as u64)));
+        let t = feed(52.0, 53.0, prints);
+        let m = market_view(Some(&b), Some(&t));
+        assert_eq!(
+            m.median_recent,
+            Some(90.0),
+            "must summarise the NEWEST prints"
+        );
+        assert_eq!(m.last_trade, Some(90.0));
     }
 }
