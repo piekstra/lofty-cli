@@ -37,8 +37,13 @@ Run `make verify` before considering a change done — it's exactly what CI runs
 - `src/client.rs` — HTTP against the SDK surface (`/public/v1`) and the internal
   website API (`--internal`, `/prod`).
 - `src/config.rs` — non-secret config; the API key is keychain-only.
-- `src/catalog.rs` — the observed endpoint inventory (static).
+- `src/catalog.rs` — the observed endpoint inventory (a static harvest of the
+  website bundle; never live-verified, and records no HTTP method).
 - `tests/` — offline contract/shape tests + `tests/fixtures/` (see its README).
+- `docs/api.md` — the two API surfaces (SDK vs internal) and the auth boundary
+  between them, plus the traps: notably that a gated route and a nonexistent one
+  return identical `403`s, so this API cannot be probed for route discovery and
+  `catalog` entries cannot be confirmed that way.
 
 ## Conventions (do not break these)
 

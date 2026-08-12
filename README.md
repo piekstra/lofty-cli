@@ -70,6 +70,12 @@ $ lofty api --internal GET /properties/v2/marketplace   # website API (open read
 $ lofty catalog --group exchange        # observed endpoint inventory
 ```
 
+Not everything the website does is reachable from here. `lofty api --internal`
+sends no credential, so only Lofty's genuinely open reads answer, and the
+account-scoped routes behind a website login (tax documents among them) stay out
+of reach — see [docs/api.md](docs/api.md) for the two API surfaces, the auth
+boundary between them, and why a `403` from this API tells you nothing at all.
+
 ### Example — LP-reward programs
 
 ```console
@@ -349,7 +355,9 @@ $ cargo run -- rewards programs
 Tests are fully **offline**: raw captured API responses live in
 `tests/fixtures/` as independent files (see its README) and the contract tests
 load them from disk — no network, no credentials. See
-[CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
+[CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md);
+[docs/api.md](docs/api.md) records the API surfaces, their auth boundaries, and
+the traps worth knowing before you probe anything.
 
 ## License
 
