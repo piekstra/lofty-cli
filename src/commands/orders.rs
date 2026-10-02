@@ -574,6 +574,26 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_ask_level_is_ignored_and_one_without_quantity_still_counts() {
+        // Safety-critical: the buy-side crossing objection reads the book's best
+        // ask. A zero-quantity level is empty and must not set it; a level with
+        // no quantity field must still set it (fail closed), or a crossing buy
+        // would pass unchallenged.
+        let path = format!(
+            "{}/tests/fixtures/book/orderbook-zero-and-missing-quantity.json",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let b: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let t = feed(50.0, 60.0, vec![(51.5, 1)]);
+        let m = market_view(Some(&b), Some(&t));
+        assert_eq!(m.book_ask, Some(52.0));
+        let why = m
+            .objection("buy", 52.5)
+            .expect("must object to a crossing buy");
+        assert!(why.contains("52.00"), "{why}");
+    }
+
+    #[test]
     fn refuses_the_sell_that_actually_lost_money() {
         // The real incident: the ORDERBOOK reported a $50 best bid while the trades
         // feed reported $71.09 and the last print was $67.50. Trusting the orderbook

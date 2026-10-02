@@ -52,9 +52,14 @@ pub fn cents(p: f64) -> i64 {
 /// Quantity below this is float residue from subtraction, not resting size.
 const DUST: f64 = 1e-9;
 
-/// The resting levels on one side, from either envelope. Entries without a
-/// numeric price, or with no positive quantity, are not resting liquidity and
-/// are skipped.
+/// The resting levels on one side, from either envelope.
+///
+/// An entry without a numeric price is skipped, as is one that reports a
+/// quantity of zero: that level is empty. An entry with a price but NO
+/// quantity field is kept with an unknown (infinite) size. That fails closed:
+/// the never-cross checks still see the price, and subtracting your own size
+/// can never make it disappear. Readers that need a real size (reward scoring)
+/// must skip non-finite quantities.
 pub fn levels(book: &Value, side: BookSide) -> Vec<Level> {
     let (new_key, old_key) = side.keys();
     book.pointer(&format!("/orderbook/{new_key}"))
@@ -64,7 +69,10 @@ pub fn levels(book: &Value, side: BookSide) -> Vec<Level> {
             a.iter()
                 .filter_map(|l| {
                     let price = l.get("price").and_then(Value::as_f64)?;
-                    let qty = l.get("quantity").and_then(Value::as_f64)?;
+                    let qty = match l.get("quantity") {
+                        None | Some(Value::Null) => f64::INFINITY,
+                        Some(q) => q.as_f64()?,
+                    };
                     let id = l
                         .get("id")
                         .or_else(|| l.get("orderId"))
@@ -208,6 +216,30 @@ mod tests {
         assert_eq!(best(&asks, BookSide::Asks), Some(53.1));
         let bids = without_mine(&levels(&book, BookSide::Bids), &[], BookSide::Bids);
         assert_eq!(bids.len(), 3);
+    }
+
+    #[test]
+    fn zero_quantity_is_empty_but_missing_quantity_fails_closed() {
+        // Asks: 51 reports quantity 0 (empty), 52 reports no quantity at all,
+        // 53 x2. An unknown-size level must stay visible, even after your own
+        // same-price size is subtracted, or a crossing check fails open.
+        let book = load("book/orderbook-zero-and-missing-quantity.json");
+        let asks = levels(&book, BookSide::Asks);
+        assert_eq!(asks.len(), 2);
+        assert_eq!(best(&asks, BookSide::Asks), Some(52.0));
+        let my_ask = load("competitiveness/orders-open.json")["orders"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|o| o["direction"] == "sell" && o["status"] == "active")
+            .cloned()
+            .map(|mut o| {
+                o["price"] = serde_json::json!(52.0);
+                o
+            })
+            .unwrap();
+        let others = without_mine(&asks, &[my_ask], BookSide::Asks);
+        assert_eq!(best(&others, BookSide::Asks), Some(52.0));
     }
 
     #[test]

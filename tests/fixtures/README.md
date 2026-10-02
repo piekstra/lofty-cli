@@ -21,6 +21,10 @@ inspect. Tests load these files; they are never embedded as string literals.
   legacy per-order envelope with ids. Field sets mirror the captured
   `account/orders-list.json`, `public/property-orderbook.json`, and
   `orderbook.json`, enforced in `fixture_shapes.rs`.
+- `book/orderbook-zero-and-missing-quantity.json` is **synthetic** (added
+  2026-10-02): an ask level reporting quantity 0 and one with no quantity
+  field, pinning how `book::levels` treats each (empty vs. unknown size,
+  counted fail-closed).
 - The old-fixtures at the top level (`marketplace.json`, `orderbook.json`,
   `property-info.json`) are from the internal `/prod` API, kept for the
   `api --internal` passthrough shapes.

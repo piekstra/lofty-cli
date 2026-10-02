@@ -348,7 +348,10 @@ fn eligibility(program: &Value, mine: &[Value], book: &Value, usdc: f64, held: f
     let side_score = |side: BookSide| -> f64 {
         super::book::levels(book, side)
             .iter()
-            .filter(|l| l.qty >= min_contracts && (l.price - mid).abs() <= spread)
+            .filter(|l| {
+                // An unknown-size level cannot be scored; skip it.
+                l.qty.is_finite() && l.qty >= min_contracts && (l.price - mid).abs() <= spread
+            })
             .map(|l| score_order(l.price - mid, spread, l.qty))
             .sum()
     };
