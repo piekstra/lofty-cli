@@ -8,6 +8,7 @@ use clap::Subcommand;
 use pk_cli_core::{output, CliError};
 use serde_json::{json, Value};
 
+use super::book::{self, BookSide};
 use super::{competitiveness, confirm, emit, table_view, Ctx};
 
 #[derive(Subcommand, Debug)]
@@ -81,8 +82,8 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
         } => {
             let client = ctx.client()?;
             // Always the `all=true` list, filtered here: the `?propertyId=` query
-            // reports a partially filled order's ORIGINAL quantity, while
-            // `all=true` reports what remains (see `fetch_state` in quote.rs).
+            // reports a partially filled order's ORIGINAL quantity (see
+            // `open_orders`).
             let mut q: Vec<(&str, String)> = vec![("all", "true".into())];
             if let Some(s) = status {
                 q.push(("status", s.clone()));
@@ -114,18 +115,7 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
         }
         Cmd::Competitiveness { property_id } => {
             let client = ctx.client()?;
-            let mut open = client.get("/public/v1/orders", &[("all", "true".into())])?;
-            if let Some(id) = property_id {
-                retain_property(&mut open, id);
-            }
-            let open: Vec<Value> = open
-                .get("orders")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|o| o.get("status").and_then(Value::as_str) == Some("active"))
-                .collect();
+            let open = open_orders(&client, property_id.as_deref())?;
             let mut properties = Vec::new();
             for (pid, mine) in competitiveness::by_property(&open) {
                 let book = client.get(&format!("/public/v1/properties/{pid}/orderbook"), &[])?;
@@ -245,6 +235,32 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
     }
 }
 
+/// Your open orders, optionally on one property.
+///
+/// The single owner of the rule: always the `all=true` list, filtered here to
+/// `status == active` (and to the property). The cheaper `?propertyId=` query
+/// reports a partially filled order's ORIGINAL quantity, while `all=true` (and
+/// the single-order GET) report what remains — raw-verified 2026-07-29, same
+/// orderId: 3 vs 2 vs 2. Sizing, covering, or attributing book quantity off the
+/// stale figure works from a position that no longer exists.
+pub fn open_orders(
+    client: &crate::client::LoftyClient,
+    property_id: Option<&str>,
+) -> Result<Vec<Value>, CliError> {
+    let mut payload = client.get("/public/v1/orders", &[("all", "true".into())])?;
+    if let Some(id) = property_id {
+        retain_property(&mut payload, id);
+    }
+    Ok(payload
+        .get("orders")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|o| o.get("status").and_then(Value::as_str) == Some("active"))
+        .collect())
+}
+
 /// Keep only one property's orders in an `/orders` payload, leaving every other
 /// top-level field as the API sent it.
 fn retain_property(payload: &mut Value, property_id: &str) {
@@ -342,21 +358,8 @@ fn min_contracts_note_from(programs: &Value, property_id: &str, quantity: u32) -
 const MARKET_TOLERANCE_PCT: f64 = 5.0;
 
 fn market_view(book: Option<&Value>, trades: Option<&Value>) -> MarketView {
-    let side = |v: Option<&Value>, new_key: &str, old_key: &str, want_max: bool| -> Option<f64> {
-        let levels = v?
-            .pointer(&format!("/orderbook/{new_key}"))
-            .or_else(|| v?.pointer(&format!("/orderbook/orderBook/{old_key}")))?
-            .as_array()?;
-        levels
-            .iter()
-            .filter_map(|l| l.get("price").and_then(Value::as_f64))
-            .fold(None, |acc: Option<f64>, p| {
-                Some(match acc {
-                    Some(a) if want_max => a.max(p),
-                    Some(a) => a.min(p),
-                    None => p,
-                })
-            })
+    let side = |v: Option<&Value>, side: BookSide| -> Option<f64> {
+        book::best(&book::levels(v?, side), side)
     };
     let recent: Vec<(f64, u64)> = trades
         .and_then(|t| t.get("recentTrades"))
@@ -392,8 +395,8 @@ fn market_view(book: Option<&Value>, trades: Option<&Value>) -> MarketView {
         last_trade_at,
         median_recent,
         recent_low_high,
-        book_bid: side(book, "bids", "buyOrders", true),
-        book_ask: side(book, "asks", "sellOrders", false),
+        book_bid: side(book, BookSide::Bids),
+        book_ask: side(book, BookSide::Asks),
         feed_bid: trades
             .and_then(|t| t.get("bestBid"))
             .and_then(Value::as_f64),
@@ -538,6 +541,27 @@ impl MarketView {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn retain_property_keeps_one_property_and_every_other_field() {
+        let path = format!(
+            "{}/tests/fixtures/competitiveness/orders-open.json",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let mut payload: Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        payload["meta"] = json!({"kept": true});
+        let total = payload["orders"].as_array().unwrap().len();
+        retain_property(&mut payload, "01SAMPLEPROP00000000000001");
+        let kept = payload["orders"].as_array().unwrap();
+        assert!(!kept.is_empty() && kept.len() < total);
+        assert!(kept
+            .iter()
+            .all(|o| o["propertyId"] == "01SAMPLEPROP00000000000001"));
+        // Every status survives: `orders list` filters by property, not status.
+        assert!(kept.iter().any(|o| o["status"] != "active"));
+        assert_eq!(payload["meta"]["kept"], true);
+    }
 
     fn book(bids: Vec<f64>, asks: Vec<f64>) -> Value {
         json!({"orderbook": {

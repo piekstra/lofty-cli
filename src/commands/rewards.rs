@@ -8,6 +8,7 @@ use clap::Subcommand;
 use pk_cli_core::{output, CliError};
 use serde_json::Value;
 
+use super::book::BookSide;
 use super::{emit, table_view, Ctx};
 
 #[derive(Subcommand, Debug)]
@@ -164,15 +165,7 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
                 .and_then(Value::as_array)
                 .cloned()
                 .unwrap_or_default();
-            let orders: Vec<Value> = client
-                .get("/public/v1/orders", &[("all", "true".into())])?
-                .get("orders")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|o| o.get("status").and_then(Value::as_str) == Some("active"))
-                .collect();
+            let orders = super::orders::open_orders(&client, None)?;
             let usdc = client
                 .get("/public/v1/account/balance", &[])?
                 .get("usdc")
@@ -230,23 +223,9 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
     }
 }
 
-/// Best bid/ask from either order-book envelope (SDK 0.2.3+ `bids`/`asks`, or the
-/// older `orderBook.buyOrders`/`sellOrders`). Levels aggregate by price.
-fn best_of(book: &Value, new_key: &str, old_key: &str, want_max: bool) -> Option<f64> {
-    let levels = book
-        .pointer(&format!("/orderbook/{new_key}"))
-        .or_else(|| book.pointer(&format!("/orderbook/orderBook/{old_key}")))
-        .and_then(Value::as_array)?;
-    levels
-        .iter()
-        .filter_map(|l| l.get("price").and_then(Value::as_f64))
-        .fold(None, |acc: Option<f64>, p| {
-            Some(match acc {
-                Some(a) if want_max => a.max(p),
-                Some(a) => a.min(p),
-                None => p,
-            })
-        })
+/// Best bid/ask from either order-book envelope (see `book::levels`).
+fn best_of(book: &Value, side: BookSide) -> Option<f64> {
+    super::book::best(&super::book::levels(book, side), side)
 }
 
 /// Published per-order score (lofty.ai/lp-rewards):
@@ -284,10 +263,7 @@ fn eligibility(program: &Value, mine: &[Value], book: &Value, usdc: f64, held: f
         .and_then(Value::as_str)
         .unwrap_or_default();
 
-    let (best_bid, best_ask) = (
-        best_of(book, "bids", "buyOrders", true),
-        best_of(book, "asks", "sellOrders", false),
-    );
+    let (best_bid, best_ask) = (best_of(book, BookSide::Bids), best_of(book, BookSide::Asks));
     let Some(mid) = best_bid.zip(best_ask).map(|(b, a)| (b + a) / 2.0) else {
         return serde_json::json!({
             "propertyId": pid, "earning": false,
@@ -369,21 +345,14 @@ fn eligibility(program: &Value, mine: &[Value], book: &Value, usdc: f64, held: f
 
     // Competition: every other in-band, sized level on the book. Our own resting
     // size is part of those levels, so subtract it to avoid counting it twice.
-    let side_score = |new_key: &str, old_key: &str| -> f64 {
-        book.pointer(&format!("/orderbook/{new_key}"))
-            .or_else(|| book.pointer(&format!("/orderbook/orderBook/{old_key}")))
-            .and_then(Value::as_array)
-            .map(|levels| {
-                levels
-                    .iter()
-                    .filter_map(|l| Some((l.get("price")?.as_f64()?, l.get("quantity")?.as_f64()?)))
-                    .filter(|(p, q)| *q >= min_contracts && (p - mid).abs() <= spread)
-                    .map(|(p, q)| score_order(p - mid, spread, q))
-                    .sum()
-            })
-            .unwrap_or(0.0)
+    let side_score = |side: BookSide| -> f64 {
+        super::book::levels(book, side)
+            .iter()
+            .filter(|l| l.qty >= min_contracts && (l.price - mid).abs() <= spread)
+            .map(|l| score_order(l.price - mid, spread, l.qty))
+            .sum()
     };
-    let book_score = side_score("bids", "buyOrders") + side_score("asks", "sellOrders");
+    let book_score = side_score(BookSide::Bids) + side_score(BookSide::Asks);
     let competing = (book_score - our_score).max(0.0);
     let total = our_score + competing;
     let share = if earning && total > 0.0 {

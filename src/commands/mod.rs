@@ -4,6 +4,7 @@
 pub mod account;
 pub mod amm;
 pub mod api;
+pub mod book;
 pub mod catalog;
 pub mod competitiveness;
 pub mod orders;

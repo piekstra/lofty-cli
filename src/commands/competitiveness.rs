@@ -4,101 +4,15 @@
 //! Pure report logic lives here; the command in `orders.rs` only fetches your
 //! open orders and each property's order book.
 
-use std::collections::{BTreeMap, BTreeSet};
-
 use pk_cli_core::output;
 use serde_json::{json, Value};
 
-/// Prices are compared in whole cents: the book and the order list both carry
-/// USD floats, and an exact float match would miss `49.81` vs `49.809999`.
-fn cents(p: f64) -> i64 {
-    (p * 100.0).round() as i64
-}
+use super::book::{self, cents, BookSide};
 
 /// Snap float dirt off a derived figure (`53.10 - 49.81` → `3.29`, not
 /// `3.2900000000000027`) so it reads cleanly in `--json`.
 fn clean(x: f64) -> f64 {
     (x * 1e6).round() / 1e6
-}
-
-/// One side of a property's book, split into everything resting and the part
-/// that is not yours.
-struct Side {
-    /// Every price level with quantity, yours included.
-    all: BTreeSet<i64>,
-    /// Price levels where someone other than you still has quantity.
-    others: BTreeSet<i64>,
-}
-
-/// Split a book side into all levels and other people's levels.
-///
-/// The current book (`orderbook.{bids,asks}`) is aggregated by price with no
-/// order ids, so your share of a level is your open quantity at that price,
-/// subtracted from the level's total; whatever remains belongs to someone else.
-/// The older envelope (`orderbook.orderBook.{buyOrders,sellOrders}`) lists
-/// individual orders with an `id`, and those are matched to your order ids
-/// directly.
-fn side(book: &Value, new_key: &str, old_key: &str, mine: &[&Value]) -> Side {
-    let levels = book
-        .pointer(&format!("/orderbook/{new_key}"))
-        .or_else(|| book.pointer(&format!("/orderbook/orderBook/{old_key}")))
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let my_ids: BTreeSet<&str> = mine
-        .iter()
-        .filter_map(|o| o.get("orderId").and_then(Value::as_str))
-        .collect();
-    let mut my_qty: BTreeMap<i64, f64> = BTreeMap::new();
-    for o in mine {
-        let p = o.get("price").and_then(Value::as_f64).unwrap_or(0.0);
-        let q = o.get("quantity").and_then(Value::as_f64).unwrap_or(0.0);
-        *my_qty.entry(cents(p)).or_default() += q;
-    }
-
-    let mut all = BTreeSet::new();
-    let mut others: BTreeMap<i64, f64> = BTreeMap::new();
-    let mut anonymous: BTreeMap<i64, f64> = BTreeMap::new();
-    for l in &levels {
-        let (Some(p), q) = (
-            l.get("price").and_then(Value::as_f64),
-            l.get("quantity").and_then(Value::as_f64).unwrap_or(0.0),
-        ) else {
-            continue;
-        };
-        if q <= 0.0 {
-            continue;
-        }
-        let c = cents(p);
-        all.insert(c);
-        match l
-            .get("id")
-            .or_else(|| l.get("orderId"))
-            .and_then(Value::as_str)
-        {
-            Some(id) if my_ids.contains(id) => {}
-            Some(_) => *others.entry(c).or_default() += q,
-            None => *anonymous.entry(c).or_default() += q,
-        }
-    }
-    for (c, q) in anonymous {
-        let rest = q - my_qty.get(&c).copied().unwrap_or(0.0);
-        if rest > 1e-9 {
-            *others.entry(c).or_default() += rest;
-        }
-    }
-    Side {
-        all,
-        others: others
-            .into_iter()
-            .filter(|(_, q)| *q > 1e-9)
-            .map(|(c, _)| c)
-            .collect(),
-    }
-}
-
-fn usd(c: Option<i64>) -> Option<f64> {
-    c.map(|c| c as f64 / 100.0)
 }
 
 /// Gap from `from` to `to` in dollars, and as a percent of `base`.
@@ -132,20 +46,27 @@ fn gap(from: Option<f64>, to: Option<f64>, base: Option<f64>) -> (Option<f64>, O
 /// your lowest ask (as a percent of that bid), `competitionGap` from the
 /// lowest ask in the book UP to the lowest ask not yours, and `leadUsd` is how
 /// far your lowest ask sits BELOW the lowest ask not yours.
-pub fn property_report(property_id: &str, mine: &[Value], book: &Value) -> Value {
+pub fn property_report(property_id: &str, mine: &[Value], book_payload: &Value) -> Value {
     let dir = |d: &str| -> Vec<&Value> {
         mine.iter()
             .filter(|o| o.get("direction").and_then(Value::as_str) == Some(d))
             .collect()
     };
     let (my_bids, my_asks) = (dir("buy"), dir("sell"));
-    let bids = side(book, "bids", "buyOrders", &my_bids);
-    let asks = side(book, "asks", "sellOrders", &my_asks);
-
-    let book_best_bid = usd(bids.all.last().copied());
-    let other_best_bid = usd(bids.others.last().copied());
-    let book_best_ask = usd(asks.all.first().copied());
-    let other_best_ask = usd(asks.others.first().copied());
+    // Your own size is attributed by `book::without_mine`, the same rule the
+    // `quote` never-cross rail uses.
+    let bids = book::levels(book_payload, BookSide::Bids);
+    let asks = book::levels(book_payload, BookSide::Asks);
+    let book_best_bid = book::best(&bids, BookSide::Bids);
+    let book_best_ask = book::best(&asks, BookSide::Asks);
+    let other_best_bid = book::best(
+        &book::without_mine(&bids, mine, BookSide::Bids),
+        BookSide::Bids,
+    );
+    let other_best_ask = book::best(
+        &book::without_mine(&asks, mine, BookSide::Asks),
+        BookSide::Asks,
+    );
 
     let summary = |orders: &[&Value], best: fn(f64, f64) -> f64| -> Option<(f64, usize, f64)> {
         let prices: Vec<f64> = orders
