@@ -1,0 +1,33 @@
+{
+  "propertyId": "01SAMPLEPROP00000000000001",
+  "orderbook": {
+    "bids": [
+      {
+        "price": 49.81,
+        "quantity": 4
+      },
+      {
+        "price": 49.5,
+        "quantity": 2
+      },
+      {
+        "price": 49,
+        "quantity": 10
+      }
+    ],
+    "asks": [
+      {
+        "price": 52,
+        "quantity": 3
+      },
+      {
+        "price": 52.75,
+        "quantity": 4
+      },
+      {
+        "price": 53.1,
+        "quantity": 5
+      }
+    ]
+  }
+}

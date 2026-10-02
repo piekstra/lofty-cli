@@ -246,3 +246,17 @@ fn help_lists_the_quote_primitives() {
         .stdout(predicate::str::contains("--min-ask"))
         .stdout(predicate::str::contains("--allow-out-of-band"));
 }
+
+#[test]
+fn orders_competitiveness_help_renders() {
+    lofty()
+        .args(["orders", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("competitiveness"));
+    lofty()
+        .args(["orders", "comp", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--property-id"));
+}

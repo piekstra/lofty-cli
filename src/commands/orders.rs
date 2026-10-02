@@ -8,7 +8,7 @@ use clap::Subcommand;
 use pk_cli_core::{output, CliError};
 use serde_json::{json, Value};
 
-use super::{confirm, emit, table_view, Ctx};
+use super::{competitiveness, confirm, emit, table_view, Ctx};
 
 #[derive(Subcommand, Debug)]
 pub enum Cmd {
@@ -24,6 +24,22 @@ pub enum Cmd {
     },
     /// Get one order by ID.
     Get { order_id: String },
+    /// How competitive your open orders are: distance to a fill and to the
+    /// competition, per property and side. Read-only.
+    ///
+    /// Buy side: the dollar and percent gap from your highest bid up to the
+    /// lowest ask that is not yours (how far a seller must come down to fill
+    /// you), and the gap between the book's highest bid and the highest bid that
+    /// is not yours. Sell side mirrors it: the gap from the highest bid not yours
+    /// up to your lowest ask, and between the book's lowest ask and the lowest
+    /// ask not yours. Partially filled orders are included at their remaining
+    /// quantity.
+    #[command(visible_alias = "comp")]
+    Competitiveness {
+        /// Only this property (default: every property you have open orders on).
+        #[arg(long)]
+        property_id: Option<String>,
+    },
     /// Place a limit order (requires a trading-enabled key).
     Create {
         #[arg(long)]
@@ -64,15 +80,17 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
             status,
         } => {
             let client = ctx.client()?;
-            let mut q: Vec<(&str, String)> = Vec::new();
-            match property_id {
-                Some(id) => q.push(("propertyId", id.clone())),
-                None => q.push(("all", "true".into())),
-            }
+            // Always the `all=true` list, filtered here: the `?propertyId=` query
+            // reports a partially filled order's ORIGINAL quantity, while
+            // `all=true` reports what remains (see `fetch_state` in quote.rs).
+            let mut q: Vec<(&str, String)> = vec![("all", "true".into())];
             if let Some(s) = status {
                 q.push(("status", s.clone()));
             }
-            let payload = client.get("/public/v1/orders", &q)?;
+            let mut payload = client.get("/public/v1/orders", &q)?;
+            if let Some(id) = property_id {
+                retain_property(&mut payload, id);
+            }
             emit(ctx, "orders-list", payload, |v| {
                 let orders = v
                     .get("orders")
@@ -92,6 +110,33 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
                     ],
                 ));
             });
+            Ok(())
+        }
+        Cmd::Competitiveness { property_id } => {
+            let client = ctx.client()?;
+            let mut open = client.get("/public/v1/orders", &[("all", "true".into())])?;
+            if let Some(id) = property_id {
+                retain_property(&mut open, id);
+            }
+            let open: Vec<Value> = open
+                .get("orders")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|o| o.get("status").and_then(Value::as_str) == Some("active"))
+                .collect();
+            let mut properties = Vec::new();
+            for (pid, mine) in competitiveness::by_property(&open) {
+                let book = client.get(&format!("/public/v1/properties/{pid}/orderbook"), &[])?;
+                properties.push(competitiveness::property_report(&pid, &mine, &book));
+            }
+            emit(
+                ctx,
+                "orders-competitiveness",
+                json!({ "properties": properties }),
+                competitiveness::render,
+            );
             Ok(())
         }
         Cmd::Get { order_id } => {
@@ -197,6 +242,14 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
             emit(ctx, "order-cancelled", payload, output::render);
             Ok(())
         }
+    }
+}
+
+/// Keep only one property's orders in an `/orders` payload, leaving every other
+/// top-level field as the API sent it.
+fn retain_property(payload: &mut Value, property_id: &str) {
+    if let Some(orders) = payload.get_mut("orders").and_then(Value::as_array_mut) {
+        orders.retain(|o| o.get("propertyId").and_then(Value::as_str) == Some(property_id));
     }
 }
 
