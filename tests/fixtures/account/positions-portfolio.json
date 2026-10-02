@@ -1,0 +1,82 @@
+{
+  "positions": [
+    {
+      "propertyId": "01SAMPLEPROP0000000000000A",
+      "currentTokens": 80,
+      "pendingTokens": 0,
+      "currentEffectiveTokens": 80,
+      "costBasis": 5000.0,
+      "totalSpent": 4000.0,
+      "totalSellValue": 0,
+      "currentValue": 4000.0,
+      "currentPrice": 50.0,
+      "totalRentEarned": 12.5,
+      "tokensPurchased": 80,
+      "tokensSold": 0
+    },
+    {
+      "propertyId": "01SAMPLEPROP0000000000000B",
+      "currentTokens": 40,
+      "pendingTokens": 0,
+      "currentEffectiveTokens": 40,
+      "costBasis": 5000.0,
+      "totalSpent": 2000.0,
+      "totalSellValue": 0,
+      "currentValue": 2000.0,
+      "currentPrice": 50.0,
+      "totalRentEarned": 3.25,
+      "tokensPurchased": 40,
+      "tokensSold": 0
+    },
+    {
+      "propertyId": "01SAMPLEPROP0000000000000C",
+      "currentTokens": 60,
+      "pendingTokens": 0,
+      "currentEffectiveTokens": 60,
+      "costBasis": 5000.0,
+      "totalSpent": 3000.0,
+      "totalSellValue": 0,
+      "currentValue": 3000.0,
+      "currentPrice": 50.0,
+      "totalRentEarned": 9.0,
+      "tokensPurchased": 60,
+      "tokensSold": 0
+    },
+    {
+      "propertyId": "01SAMPLEPROP0000000000000D",
+      "currentTokens": 20,
+      "pendingTokens": 0,
+      "currentEffectiveTokens": 20,
+      "costBasis": 5000.0,
+      "totalSpent": 1000.0,
+      "totalSellValue": 0,
+      "currentValue": 1000.0,
+      "currentPrice": 50.0,
+      "totalRentEarned": 1.5,
+      "tokensPurchased": 20,
+      "tokensSold": 0
+    },
+    {
+      "propertyId": "01SAMPLEPROP0000000000000E",
+      "currentTokens": 0,
+      "pendingTokens": 0,
+      "currentEffectiveTokens": 0,
+      "costBasis": 5000.0,
+      "totalSpent": 0.0,
+      "totalSellValue": 520.0,
+      "currentValue": 0.0,
+      "currentPrice": 50.0,
+      "totalRentEarned": 2.0,
+      "tokensPurchased": 10,
+      "tokensSold": 10
+    }
+  ],
+  "totals": {
+    "totalCurrentTokens": 200,
+    "totalPurchasedTokens": 210,
+    "totalCurrentPrincipal": 10000.0,
+    "totalSellValue": 520.0,
+    "totalRentEarned": 28.25,
+    "totalProperties": 5
+  }
+}

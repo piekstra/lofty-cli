@@ -43,6 +43,9 @@ Run `make verify` before considering a change done — it's exactly what CI runs
   - Open orders come only from `orders::open_orders` (the `all=true` list,
     filtered client-side): the `?propertyId=` query reports a partially filled
     order's original quantity.
+  - `portfolio.rs` holds the pure report logic behind `account portfolio`
+    (holdings weighted by location, property, and rent); `account.rs` only
+    fetches its inputs.
 - `src/client.rs` — HTTP against the SDK surface (`/public/v1`) and the internal
   website API (`--internal`, `/prod`).
 - `src/config.rs` — non-secret config; the API key is keychain-only.

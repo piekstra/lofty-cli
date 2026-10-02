@@ -260,3 +260,17 @@ fn orders_competitiveness_help_renders() {
         .success()
         .stdout(predicate::str::contains("--property-id"));
 }
+
+#[test]
+fn account_portfolio_help_renders() {
+    lofty()
+        .args(["account", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("portfolio"));
+    lofty()
+        .args(["account", "portfolio", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("rent"));
+}

@@ -12,6 +12,17 @@ pub enum Cmd {
     Balance,
     /// Token holdings by property, with cost basis and P&L inputs.
     Positions,
+    /// Portfolio composition: holdings weighted by state, city, and property
+    /// (on estimated value), plus each property's share of your daily rent and
+    /// how much of the portfolio is renting right now.
+    ///
+    /// Value is each position's `currentValue` (tokens x current price). Daily
+    /// rent is the property's projected annual cash flow, per issued token, times
+    /// the tokens you hold, over 365 days. A property counts as renting unless its
+    /// listing marks it vacant or delinquent or projects no cash flow; those pay
+    /// nothing, so they are excluded from the rent weighting rather than shown as
+    /// a 0% share.
+    Portfolio,
     /// Executed trades (completed buys and sells).
     Trades {
         /// Filter to one property.
@@ -127,6 +138,36 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
                     output::render(totals);
                 }
             });
+            Ok(())
+        }
+        Cmd::Portfolio => {
+            let positions = client
+                .get("/public/v1/account/positions", &[])?
+                .get("positions")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let mut listings = std::collections::BTreeMap::new();
+            for (pid, _) in super::portfolio::held(&positions) {
+                match client.get(&format!("/public/v1/properties/{pid}"), &[]) {
+                    // `properties/{id}` wraps its payload in `property`; accept a
+                    // bare listing too, as `venue_fees` does.
+                    Ok(v) => {
+                        let listing = v.get("property").cloned().unwrap_or(v);
+                        listings.insert(pid.to_string(), listing);
+                    }
+                    // A delisted property still counts toward value; the report
+                    // files it under `unknown` instead of failing the whole run.
+                    Err(CliError::NotFound(_)) => {
+                        if !ctx.common.quiet {
+                            eprintln!("{pid}: no listing found — weighted under `unknown`");
+                        }
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+            let report = super::portfolio::portfolio(&positions, &listings);
+            emit(ctx, "account-portfolio", report, super::portfolio::render);
             Ok(())
         }
         Cmd::Trades {

@@ -57,6 +57,7 @@ $ lofty rewards history --since <ms>    # your reward payouts
 $ lofty rewards reconcile               # audit payouts: totals, math check, gap detection
 $ lofty rewards eligibility             # are your orders earning right now, and if not why
 $ lofty account balance|positions|trades
+$ lofty account portfolio               # holdings weighted by state, city, property, and rent
 $ lofty account coverage                # what's reserved backing your bids vs free to spend
 $ lofty account breakeven --margin 5    # fee-inclusive sell price (basis hides the buy fee)
 $ lofty account rebates                 # maker rebates earned, derived from your fills
@@ -170,6 +171,43 @@ $49.81       | +$0.35 | $52.75 | 01SAMPLEPROP00000000000001 | 4   | sell | $2.94
 `--property-id` limits it to one property; `--json` emits
 `orders-competitiveness/v1` with a `book` block and a `buy`/`sell` block per
 property (`null` for a side you have no orders on).
+
+### Example — where is my money, and what pays?
+
+`portfolio` weights your holdings by **estimated value** (each position's
+`currentValue`, tokens × current price) across states, cities, and properties,
+and by **rent**: each property's share of your projected daily rent.
+
+Daily rent is the listing's `projected_annual_cash_flow` per issued token, times
+the tokens you hold, over 365 days. A property counts as **renting** unless its
+listing marks it vacant (`is_occupied: false`) or delinquent (`is_delinquent`),
+or projects no cash flow. Non-paying properties are excluded from the rent
+weighting (their share is `-` / `null`, not `0%`), so the renting ones sum to
+100%. The headline also gives the share of properties renting and the share of
+holdings value that is rent-earning. Numbers below are illustrative.
+
+```console
+$ lofty account portfolio
+4 properties, $10000.00 estimated value, $1.4000/day projected rent
+renting: 2 of 4 properties (50.0%), 70.0% of holdings value
+
+BY STATE
+PROPERTIES | RENT % | STATE | VALUE     | VALUE %
+2          | 57.1%  | OH    | $6000.00  | 60.0%
+1          | 42.9%  | MI    | $3000.00  | 30.0%
+1          | 0.0%   | TN    | $1000.00  | 10.0%
+...
+BY PROPERTY
+LOCATION      | PROPERTY      | RENT % | RENT/DAY | STATUS     | VALUE    | VALUE %
+Cleveland, OH | 100 Sample St | 57.1%  | $0.8000  | renting    | $4000.00 | 40.0%
+Toledo, OH    | 200 Sample St | -      | $0.0000  | vacant     | $2000.00 | 20.0%
+```
+
+`--json` emits `account-portfolio/v1` with `totals`, `byState`, `byCity`, and
+`properties` (each carrying `valueSharePct`, `dailyRentUsd`, `rentSharePct`,
+and `rentStatus`: `renting` | `vacant` | `delinquent` | `no-cash-flow` |
+`unknown`). A held property whose listing is gone is still weighted by value,
+under an `unknown` location, rather than dropped.
 
 ### Example — what can I actually spend?
 
