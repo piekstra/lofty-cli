@@ -1,0 +1,82 @@
+[
+  {
+    "property": {
+      "id": "01SAMPLEPROP0000000000000A",
+      "address_line1": "100 Sample St",
+      "address_line2": "Cleveland, OH 00001",
+      "city": "Cleveland",
+      "state": "OH",
+      "zipcode": "00001",
+      "market": "cleveland",
+      "property_type": "single family",
+      "tokens": 1000,
+      "numIssued": 1000,
+      "sale_price": 50000,
+      "monthly_rent": 0,
+      "projected_annual_cash_flow": 3650,
+      "projected_rental_yield": 7.3,
+      "is_occupied": true,
+      "is_delinquent": false
+    }
+  },
+  {
+    "property": {
+      "id": "01SAMPLEPROP0000000000000B",
+      "address_line1": "200 Sample St",
+      "address_line2": "Toledo, OH 00002",
+      "city": "Toledo",
+      "state": "OH",
+      "zipcode": "00002",
+      "market": "toledo",
+      "property_type": "single family",
+      "tokens": 500,
+      "numIssued": 500,
+      "sale_price": 25000,
+      "monthly_rent": 0,
+      "projected_annual_cash_flow": 2000,
+      "projected_rental_yield": 7.3,
+      "is_occupied": false,
+      "is_delinquent": false
+    }
+  },
+  {
+    "property": {
+      "id": "01SAMPLEPROP0000000000000C",
+      "address_line1": "300 Sample St",
+      "address_line2": "Detroit, MI 00003",
+      "city": "Detroit",
+      "state": "MI",
+      "zipcode": "00003",
+      "market": "detroit",
+      "property_type": "single family",
+      "tokens": 2000,
+      "numIssued": 2000,
+      "sale_price": 100000,
+      "monthly_rent": 0,
+      "projected_annual_cash_flow": 7300,
+      "projected_rental_yield": 7.3,
+      "is_occupied": true,
+      "is_delinquent": false
+    }
+  },
+  {
+    "property": {
+      "id": "01SAMPLEPROP0000000000000D",
+      "address_line1": "400 Sample St",
+      "address_line2": "Nashville, TN 00004",
+      "city": "Nashville",
+      "state": "TN",
+      "zipcode": "00004",
+      "market": "nashville",
+      "property_type": "single family",
+      "tokens": 800,
+      "numIssued": 800,
+      "sale_price": 40000,
+      "monthly_rent": 0,
+      "projected_annual_cash_flow": 2920,
+      "projected_rental_yield": 7.3,
+      "is_occupied": true,
+      "is_delinquent": true
+    }
+  }
+]

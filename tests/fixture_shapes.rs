@@ -324,3 +324,50 @@ fn competitiveness_fixtures_mirror_the_live_order_and_book_shapes() {
         }
     }
 }
+
+#[test]
+fn property_listing_carries_the_fields_portfolio_weights_on() {
+    // `account portfolio` locates holdings by `city`/`state` and derives rent
+    // from `projected_annual_cash_flow` per issued `tokens`, gated on the
+    // occupancy/delinquency flags. A missing numeric reads as 0 and a missing
+    // flag as "renting", so a rename would silently skew every weighting.
+    let v = fixture("public/property-get.json");
+    let p = v.get("property").expect("property envelope");
+    for field in ["city", "state", "address_line1"] {
+        assert!(
+            p.get(field).and_then(Value::as_str).is_some(),
+            "listing missing string `{field}`"
+        );
+    }
+    for field in ["tokens", "projected_annual_cash_flow"] {
+        assert!(
+            p.get(field).and_then(Value::as_f64).is_some(),
+            "listing missing numeric `{field}`"
+        );
+    }
+    for field in ["is_occupied", "is_delinquent"] {
+        assert!(
+            p.get(field).and_then(Value::as_bool).is_some(),
+            "listing missing boolean `{field}`"
+        );
+    }
+    // The synthetic portfolio fixture must mirror those shapes.
+    let listings = fixture("portfolio/property-listings.json");
+    for l in listings.as_array().unwrap() {
+        let l = &l["property"];
+        for field in ["id", "city", "state"] {
+            assert!(l.get(field).and_then(Value::as_str).is_some());
+        }
+        assert!(l
+            .get("projected_annual_cash_flow")
+            .and_then(Value::as_f64)
+            .is_some());
+        assert!(l.get("is_occupied").and_then(Value::as_bool).is_some());
+    }
+    let positions = fixture("account/positions-portfolio.json");
+    for p in positions["positions"].as_array().unwrap() {
+        for field in ["currentTokens", "currentValue", "currentPrice"] {
+            assert!(p.get(field).and_then(Value::as_f64).is_some());
+        }
+    }
+}

@@ -25,6 +25,13 @@ inspect. Tests load these files; they are never embedded as string literals.
   2026-10-02): an ask level reporting quantity 0 and one with no quantity
   field, pinning how `book::levels` treats each (empty vs. unknown size,
   counted fail-closed).
+- `account/positions-portfolio.json` and `portfolio/property-listings.json`
+  are **synthetic** (added 2026-10-02) for `account portfolio`: a multi-state
+  portfolio with one renting, one vacant, one delinquent and one fully sold
+  position, so every weighting path is exercised. Shapes mirror the live
+  `/account/positions` and `/properties/{id}` responses (the listings are
+  trimmed to the fields the report reads, envelope kept); ids are `01SAMPLE…`,
+  addresses `NNN Sample St`, zip codes `0000N`.
 - The old-fixtures at the top level (`marketplace.json`, `orderbook.json`,
   `property-info.json`) are from the internal `/prod` API, kept for the
   `api --internal` passthrough shapes.

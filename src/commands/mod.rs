@@ -8,6 +8,7 @@ pub mod book;
 pub mod catalog;
 pub mod competitiveness;
 pub mod orders;
+pub mod portfolio;
 pub mod properties;
 pub mod quote;
 pub mod rewards;
