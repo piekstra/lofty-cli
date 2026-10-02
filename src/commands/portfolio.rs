@@ -11,30 +11,72 @@ use pk_cli_core::output;
 use serde_json::{json, Value};
 
 /// Why a property does or does not pay rent right now.
-///
-/// The SDK exposes no rent-payment feed, so this reads the listing flags Lofty
-/// itself publishes: a vacant property pays nothing, a delinquent tenant pays
-/// nothing, and a property whose projected cash flow is zero or negative has
-/// nothing to distribute. `monthly_rent` is deliberately NOT consulted — it is
-/// observed as `0` on occupied, distributing properties.
-fn rent_status(listing: Option<&Value>) -> &'static str {
-    let Some(p) = listing else {
-        return "unknown";
-    };
-    if p.get("is_occupied").and_then(Value::as_bool) == Some(false) {
-        "vacant"
-    } else if p.get("is_delinquent").and_then(Value::as_bool) == Some(true) {
-        "delinquent"
-    } else if p
-        .get("projected_annual_cash_flow")
-        .and_then(Value::as_f64)
-        .unwrap_or(0.0)
-        <= 0.0
-    {
-        "no-cash-flow"
-    } else {
-        "renting"
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RentStatus {
+    Renting,
+    Vacant,
+    Delinquent,
+    NoCashFlow,
+    /// No listing was available to judge from.
+    Unknown,
+}
+
+impl RentStatus {
+    /// Classify from the listing flags Lofty publishes.
+    ///
+    /// The SDK exposes no rent-payment feed: a vacant property pays nothing, a
+    /// delinquent tenant pays nothing, and a property whose projected cash flow
+    /// is zero or negative has nothing to distribute. `monthly_rent` is
+    /// deliberately NOT consulted — it is observed as `0` on occupied,
+    /// distributing properties.
+    fn of(listing: Option<&Value>) -> Self {
+        let Some(p) = listing else {
+            return Self::Unknown;
+        };
+        if p.get("is_occupied").and_then(Value::as_bool) == Some(false) {
+            Self::Vacant
+        } else if p.get("is_delinquent").and_then(Value::as_bool) == Some(true) {
+            Self::Delinquent
+        } else if p
+            .get("projected_annual_cash_flow")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+            <= 0.0
+        {
+            Self::NoCashFlow
+        } else {
+            Self::Renting
+        }
     }
+
+    fn is_renting(self) -> bool {
+        self == Self::Renting
+    }
+
+    /// Wire name in `account-portfolio/v1`.
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Renting => "renting",
+            Self::Vacant => "vacant",
+            Self::Delinquent => "delinquent",
+            Self::NoCashFlow => "no-cash-flow",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+/// The positions that make up the portfolio, with their property ids: those
+/// still holding tokens. A fully sold position is history, not a holding, and
+/// one without a `propertyId` cannot be located or priced against a listing.
+///
+/// The command uses this to decide which listings to fetch and the report uses
+/// it to decide which rows to weight, so the two can never disagree.
+pub fn held(positions: &[Value]) -> impl Iterator<Item = (&str, &Value)> {
+    positions.iter().filter_map(|p| {
+        let tokens = p.get("currentTokens").and_then(Value::as_f64)?;
+        let id = p.get("propertyId").and_then(Value::as_str)?;
+        (tokens > 0.0).then_some((id, p))
+    })
 }
 
 /// Percent of `part` in `whole`, or `None` when there is no whole to divide.
@@ -69,29 +111,22 @@ pub fn portfolio(positions: &[Value], listings: &BTreeMap<String, Value>) -> Val
         state: String,
         tokens: f64,
         value: f64,
-        status: &'static str,
+        status: RentStatus,
         daily_rent: f64,
     }
 
     let mut rows: Vec<Row> = Vec::new();
-    for p in positions {
+    for (id, p) in held(positions) {
         let tokens = num(p, "currentTokens");
-        if tokens <= 0.0 {
-            continue; // fully sold — no longer part of the portfolio
-        }
-        let id = p
-            .get("propertyId")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
+        let id = id.to_string();
         let listing = listings.get(&id);
         let value = match p.get("currentValue").and_then(Value::as_f64) {
             Some(v) => v,
             None => tokens * num(p, "currentPrice"),
         };
-        let status = rent_status(listing);
+        let status = RentStatus::of(listing);
         let daily_rent = match listing {
-            Some(l) if status == "renting" && num(l, "tokens") > 0.0 => {
+            Some(l) if status.is_renting() && num(l, "tokens") > 0.0 => {
                 num(l, "projected_annual_cash_flow") / 365.0 * tokens / num(l, "tokens")
             }
             _ => 0.0,
@@ -110,7 +145,7 @@ pub fn portfolio(positions: &[Value], listings: &BTreeMap<String, Value>) -> Val
 
     let total_value: f64 = rows.iter().map(|r| r.value).sum();
     let total_rent: f64 = rows.iter().map(|r| r.daily_rent).sum();
-    let renting: Vec<&Row> = rows.iter().filter(|r| r.status == "renting").collect();
+    let renting: Vec<&Row> = rows.iter().filter(|r| r.status.is_renting()).collect();
     let renting_value: f64 = renting.iter().map(|r| r.value).sum();
 
     // Group by a key, summing value, then order largest first.
@@ -151,7 +186,7 @@ pub fn portfolio(positions: &[Value], listings: &BTreeMap<String, Value>) -> Val
     let mut properties: Vec<Value> = rows
         .iter()
         .map(|r| {
-            let renting = r.status == "renting";
+            let renting = r.status.is_renting();
             json!({
                 "propertyId": r.id,
                 "address": r.address,
@@ -160,7 +195,7 @@ pub fn portfolio(positions: &[Value], listings: &BTreeMap<String, Value>) -> Val
                 "tokens": r.tokens,
                 "valueUsd": r.value,
                 "valueSharePct": share(r.value, total_value),
-                "rentStatus": r.status,
+                "rentStatus": r.status.as_str(),
                 "renting": renting,
                 "dailyRentUsd": r.daily_rent,
                 // Non-paying properties are excluded from the rent weighting
@@ -418,7 +453,16 @@ mod tests {
             "X".to_string(),
             json!({"is_occupied": true, "projected_annual_cash_flow": 0, "tokens": 10}),
         );
-        assert_eq!(rent_status(l.get("X")), "no-cash-flow");
+        assert_eq!(RentStatus::of(l.get("X")), RentStatus::NoCashFlow);
+    }
+
+    #[test]
+    fn holdings_need_tokens_and_a_property_id() {
+        let (positions, _) = inputs();
+        let ids: Vec<&str> = held(&positions).map(|(id, _)| id).collect();
+        // E is fully sold; every other fixture position is held.
+        assert_eq!(ids.len(), 4);
+        assert!(!ids.contains(&"01SAMPLEPROP0000000000000E"));
     }
 
     #[test]

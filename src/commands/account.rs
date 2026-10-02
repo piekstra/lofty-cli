@@ -148,17 +148,7 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
                 .cloned()
                 .unwrap_or_default();
             let mut listings = std::collections::BTreeMap::new();
-            for p in &positions {
-                let held = p
-                    .get("currentTokens")
-                    .and_then(Value::as_f64)
-                    .unwrap_or(0.0);
-                let Some(pid) = p.get("propertyId").and_then(Value::as_str) else {
-                    continue;
-                };
-                if held <= 0.0 {
-                    continue;
-                }
+            for (pid, _) in super::portfolio::held(&positions) {
                 match client.get(&format!("/public/v1/properties/{pid}"), &[]) {
                     // `properties/{id}` wraps its payload in `property`; accept a
                     // bare listing too, as `venue_fees` does.
