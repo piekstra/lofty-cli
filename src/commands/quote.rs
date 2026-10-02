@@ -280,24 +280,8 @@ fn fetch_state(client: &crate::client::LoftyClient, property_id: &str) -> Result
                 .cloned()
         })
         .ok_or_else(|| CliError::NotFound(format!("no active LP program for {property_id}")))?;
-    // Deliberately the `all=true` list filtered client-side, NOT the cheaper
-    // `?propertyId=` query: after a PARTIAL fill the property-scoped list keeps
-    // reporting the order's ORIGINAL quantity, while `all=true` and the
-    // single-order GET both report what actually remains (raw-verified 2026-07-29,
-    // same orderId: 3 vs 2 vs 2). Sizing or covering a quote off the stale number
-    // works from a position that no longer exists.
-    let mine: Vec<Value> = client
-        .get("/public/v1/orders", &[("all", "true".to_string())])?
-        .get("orders")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|o| {
-            o.get("status").and_then(Value::as_str) == Some("active")
-                && o.get("propertyId").and_then(Value::as_str) == Some(property_id)
-        })
-        .collect();
+    // Remaining (not original) quantities after a partial fill: see `open_orders`.
+    let mine = super::orders::open_orders(client, Some(property_id))?;
     let book = client.get(
         &format!("/public/v1/properties/{property_id}/orderbook"),
         &[],
@@ -436,56 +420,27 @@ fn apply_or_show(
 /// the reward band against) and best bid/ask with our own size removed (what a
 /// crossing check must compare to).
 fn market_from(program: &Value, mine: &[Value], book: &Value) -> Result<Market, CliError> {
+    use super::book::{best, levels, without_mine, BookSide};
     let num = |v: &Value, k: &str| v.get(k).and_then(Value::as_f64).unwrap_or(0.0);
-    let levels = |new_key: &str, old_key: &str| -> Vec<(f64, f64)> {
-        book.pointer(&format!("/orderbook/{new_key}"))
-            .or_else(|| book.pointer(&format!("/orderbook/orderBook/{old_key}")))
-            .and_then(Value::as_array)
-            .map(|a| {
-                a.iter()
-                    .filter_map(|l| Some((l.get("price")?.as_f64()?, l.get("quantity")?.as_f64()?)))
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
-    let full_bid = levels("bids", "buyOrders")
-        .iter()
-        .map(|l| l.0)
-        .fold(f64::NEG_INFINITY, f64::max);
-    let full_ask = levels("asks", "sellOrders")
-        .iter()
-        .map(|l| l.0)
-        .fold(f64::INFINITY, f64::min);
-    if !full_bid.is_finite() || !full_ask.is_finite() {
+    let bids = levels(book, BookSide::Bids);
+    let asks = levels(book, BookSide::Asks);
+    let (Some(full_bid), Some(full_ask)) =
+        (best(&bids, BookSide::Bids), best(&asks, BookSide::Asks))
+    else {
         return Err(CliError::Other(
             "order book is one-sided or empty — no mid to measure the band against".into(),
         ));
-    }
-    let mut bid_levels = levels("bids", "buyOrders");
-    let mut ask_levels = levels("asks", "sellOrders");
-    let subtract = |lv: &mut Vec<(f64, f64)>, dir: &str| {
-        for o in mine
-            .iter()
-            .filter(|o| o.get("direction").and_then(Value::as_str) == Some(dir))
-        {
-            let (p, q) = (num(o, "price"), num(o, "quantity"));
-            if let Some(l) = lv.iter_mut().find(|l| (l.0 - p).abs() < 0.005) {
-                l.1 -= q;
-            }
-        }
-        lv.retain(|l| l.1 > 0.0);
     };
-    subtract(&mut bid_levels, "buy");
-    subtract(&mut ask_levels, "sell");
+    // Our own size removed by the same rule `orders competitiveness` reports
+    // with, so the rail and the report can never disagree about the market.
     Ok(Market {
         mid: (full_bid + full_ask) / 2.0,
         spread: num(program, "allowedSpread"),
         min_contracts: num(program, "minContracts"),
-        mkt_best_bid: bid_levels
-            .iter()
-            .map(|l| l.0)
-            .fold(f64::NEG_INFINITY, f64::max),
-        mkt_best_ask: ask_levels.iter().map(|l| l.0).fold(f64::INFINITY, f64::min),
+        mkt_best_bid: best(&without_mine(&bids, mine, BookSide::Bids), BookSide::Bids)
+            .unwrap_or(f64::NEG_INFINITY),
+        mkt_best_ask: best(&without_mine(&asks, mine, BookSide::Asks), BookSide::Asks)
+            .unwrap_or(f64::INFINITY),
     })
 }
 

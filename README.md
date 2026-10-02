@@ -61,6 +61,7 @@ $ lofty account coverage                # what's reserved backing your bids vs f
 $ lofty account breakeven --margin 5    # fee-inclusive sell price (basis hides the buy fee)
 $ lofty account rebates                 # maker rebates earned, derived from your fills
 $ lofty orders list|get|create|cancel   # mutations confirm, or --force
+$ lofty orders competitiveness          # your open orders: distance to a fill and to the competition
 $ lofty quote recenter --property-id <ID> --bid <P>   # move a quote safely (dry run by default)
 $ lofty quote provision --property-id <ID> --bid <P> --ask <Q>   # post a fresh two-sided quote
 $ lofty quote pull --property-id <ID> --keep-above <P>           # stand down, keeping recovery asks
@@ -139,6 +140,36 @@ Qualifying a *side* and *scoring* are separate: an order that is sized and cover
 establishes that side exists, while only in-band orders accrue score — so a
 position can be two-sided yet still score nothing, and the output distinguishes
 the two rather than collapsing them into one boolean.
+
+### Example — how close are my orders to filling?
+
+`orders competitiveness` (alias `comp`) measures each of your open orders'
+distance to a fill and to the competition, per property and side. It reads
+your open orders and each property's order book; it never places or cancels
+anything.
+
+| Side | `to fill` | `top vs next other` |
+| --- | --- | --- |
+| buy | your highest bid up to the lowest ask **not yours** (% of that ask): how far a seller must come down | the book's highest bid vs the highest bid **not yours** (% of the latter) |
+| sell | the highest bid **not yours** up to your lowest ask (% of that bid): how far a buyer must come up | the lowest ask **not yours** vs the book's lowest ask (% of the former) |
+
+Your own orders are never the counterparty: your ask cannot fill your bid. The
+book is aggregated by price with no order ids, so your share of a level is your
+open quantity at that price and the remainder is someone else's. `lead` is how
+far ahead of the best competing order you are (negative when behind).
+Partially filled orders are included at their remaining quantity. Numbers below
+are illustrative.
+
+```console
+$ lofty orders competitiveness
+COUNTERPARTY | LEAD   | MINE   | PROPERTY                   | QTY | SIDE | TO FILL       | TOP VS NEXT OTHER
+$53.10       | +$0.00 | $49.81 | 01SAMPLEPROP00000000000001 | 6   | buy  | $3.29 (6.20%) | $0.00 (0.00%)
+$49.81       | +$0.35 | $52.75 | 01SAMPLEPROP00000000000001 | 4   | sell | $2.94 (5.90%) | $0.35 (0.66%)
+```
+
+`--property-id` limits it to one property; `--json` emits
+`orders-competitiveness/v1` with a `book` block and a `buy`/`sell` block per
+property (`null` for a side you have no orders on).
 
 ### Example — what can I actually spend?
 

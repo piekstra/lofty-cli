@@ -34,6 +34,15 @@ Run `make verify` before considering a change done — it's exactly what CI runs
     never cross the market, never exceed cover, never go under `minContracts`,
     stay inside the reward band, and touch only the sides given a price, so one
     side can never be orphaned into a non-earning position.
+  - `competitiveness.rs` holds the pure report logic behind
+    `orders competitiveness` (distance to fill and to competing orders);
+    `orders.rs` only fetches open orders and books.
+  - `book.rs` owns order-book parsing (both envelopes) and the "book without
+    my own orders" rule, shared by `quote`'s never-cross rail, `orders
+    competitiveness`, and `rewards`.
+  - Open orders come only from `orders::open_orders` (the `all=true` list,
+    filtered client-side): the `?propertyId=` query reports a partially filled
+    order's original quantity.
 - `src/client.rs` — HTTP against the SDK surface (`/public/v1`) and the internal
   website API (`--internal`, `/prod`).
 - `src/config.rs` — non-secret config; the API key is keychain-only.

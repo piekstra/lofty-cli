@@ -13,6 +13,18 @@ inspect. Tests load these files; they are never embedded as string literals.
   order-coverage paths (asks cover against held tokens, and only `active` orders
   consume cover at all). Shapes follow live responses, including
   `paymentCurrency: "any"` on sells.
+- `competitiveness/` is **synthetic** (added 2026-10-02) for
+  `orders competitiveness`: one set of open orders (a partially filled bid
+  shown at its remaining quantity, a second bid, an ask, closed orders, and an
+  order on another property) against order books where your bid shares the
+  top level, sits alone on top, or is undercut, plus a bids-only book and the
+  legacy per-order envelope with ids. Field sets mirror the captured
+  `account/orders-list.json`, `public/property-orderbook.json`, and
+  `orderbook.json`, enforced in `fixture_shapes.rs`.
+- `book/orderbook-zero-and-missing-quantity.json` is **synthetic** (added
+  2026-10-02): an ask level reporting quantity 0 and one with no quantity
+  field, pinning how `book::levels` treats each (empty vs. unknown size,
+  counted fail-closed).
 - The old-fixtures at the top level (`marketplace.json`, `orderbook.json`,
   `property-info.json`) are from the internal `/prod` API, kept for the
   `api --internal` passthrough shapes.

@@ -8,7 +8,8 @@ use clap::Subcommand;
 use pk_cli_core::{output, CliError};
 use serde_json::{json, Value};
 
-use super::{confirm, emit, table_view, Ctx};
+use super::book::{self, BookSide};
+use super::{competitiveness, confirm, emit, table_view, Ctx};
 
 #[derive(Subcommand, Debug)]
 pub enum Cmd {
@@ -24,6 +25,22 @@ pub enum Cmd {
     },
     /// Get one order by ID.
     Get { order_id: String },
+    /// How competitive your open orders are: distance to a fill and to the
+    /// competition, per property and side. Read-only.
+    ///
+    /// Buy side: the dollar and percent gap from your highest bid up to the
+    /// lowest ask that is not yours (how far a seller must come down to fill
+    /// you), and the gap between the book's highest bid and the highest bid that
+    /// is not yours. Sell side mirrors it: the gap from the highest bid not yours
+    /// up to your lowest ask, and between the book's lowest ask and the lowest
+    /// ask not yours. Partially filled orders are included at their remaining
+    /// quantity.
+    #[command(visible_alias = "comp")]
+    Competitiveness {
+        /// Only this property (default: every property you have open orders on).
+        #[arg(long)]
+        property_id: Option<String>,
+    },
     /// Place a limit order (requires a trading-enabled key).
     Create {
         #[arg(long)]
@@ -64,15 +81,17 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
             status,
         } => {
             let client = ctx.client()?;
-            let mut q: Vec<(&str, String)> = Vec::new();
-            match property_id {
-                Some(id) => q.push(("propertyId", id.clone())),
-                None => q.push(("all", "true".into())),
-            }
+            // Always the `all=true` list, filtered here: the `?propertyId=` query
+            // reports a partially filled order's ORIGINAL quantity (see
+            // `open_orders`).
+            let mut q: Vec<(&str, String)> = vec![("all", "true".into())];
             if let Some(s) = status {
                 q.push(("status", s.clone()));
             }
-            let payload = client.get("/public/v1/orders", &q)?;
+            let mut payload = client.get("/public/v1/orders", &q)?;
+            if let Some(id) = property_id {
+                retain_property(&mut payload, id);
+            }
             emit(ctx, "orders-list", payload, |v| {
                 let orders = v
                     .get("orders")
@@ -92,6 +111,22 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
                     ],
                 ));
             });
+            Ok(())
+        }
+        Cmd::Competitiveness { property_id } => {
+            let client = ctx.client()?;
+            let open = open_orders(&client, property_id.as_deref())?;
+            let mut properties = Vec::new();
+            for (pid, mine) in competitiveness::by_property(&open) {
+                let book = client.get(&format!("/public/v1/properties/{pid}/orderbook"), &[])?;
+                properties.push(competitiveness::property_report(&pid, &mine, &book));
+            }
+            emit(
+                ctx,
+                "orders-competitiveness",
+                json!({ "properties": properties }),
+                competitiveness::render,
+            );
             Ok(())
         }
         Cmd::Get { order_id } => {
@@ -200,6 +235,40 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
     }
 }
 
+/// Your open orders, optionally on one property.
+///
+/// The single owner of the rule: always the `all=true` list, filtered here to
+/// `status == active` (and to the property). The cheaper `?propertyId=` query
+/// reports a partially filled order's ORIGINAL quantity, while `all=true` (and
+/// the single-order GET) report what remains — raw-verified 2026-07-29, same
+/// orderId: 3 vs 2 vs 2. Sizing, covering, or attributing book quantity off the
+/// stale figure works from a position that no longer exists.
+pub fn open_orders(
+    client: &crate::client::LoftyClient,
+    property_id: Option<&str>,
+) -> Result<Vec<Value>, CliError> {
+    let mut payload = client.get("/public/v1/orders", &[("all", "true".into())])?;
+    if let Some(id) = property_id {
+        retain_property(&mut payload, id);
+    }
+    Ok(payload
+        .get("orders")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|o| o.get("status").and_then(Value::as_str) == Some("active"))
+        .collect())
+}
+
+/// Keep only one property's orders in an `/orders` payload, leaving every other
+/// top-level field as the API sent it.
+fn retain_property(payload: &mut Value, property_id: &str) {
+    if let Some(orders) = payload.get_mut("orders").and_then(Value::as_array_mut) {
+        orders.retain(|o| o.get("propertyId").and_then(Value::as_str) == Some(property_id));
+    }
+}
+
 /// Everything known about what a token is currently worth, gathered from BOTH
 /// price sources because they disagree — an orderbook read of $50 against a real
 /// bid of $71.09 is what priced a sell 20% under the market.
@@ -289,21 +358,8 @@ fn min_contracts_note_from(programs: &Value, property_id: &str, quantity: u32) -
 const MARKET_TOLERANCE_PCT: f64 = 5.0;
 
 fn market_view(book: Option<&Value>, trades: Option<&Value>) -> MarketView {
-    let side = |v: Option<&Value>, new_key: &str, old_key: &str, want_max: bool| -> Option<f64> {
-        let levels = v?
-            .pointer(&format!("/orderbook/{new_key}"))
-            .or_else(|| v?.pointer(&format!("/orderbook/orderBook/{old_key}")))?
-            .as_array()?;
-        levels
-            .iter()
-            .filter_map(|l| l.get("price").and_then(Value::as_f64))
-            .fold(None, |acc: Option<f64>, p| {
-                Some(match acc {
-                    Some(a) if want_max => a.max(p),
-                    Some(a) => a.min(p),
-                    None => p,
-                })
-            })
+    let side = |v: Option<&Value>, side: BookSide| -> Option<f64> {
+        book::best(&book::levels(v?, side), side)
     };
     let recent: Vec<(f64, u64)> = trades
         .and_then(|t| t.get("recentTrades"))
@@ -339,8 +395,8 @@ fn market_view(book: Option<&Value>, trades: Option<&Value>) -> MarketView {
         last_trade_at,
         median_recent,
         recent_low_high,
-        book_bid: side(book, "bids", "buyOrders", true),
-        book_ask: side(book, "asks", "sellOrders", false),
+        book_bid: side(book, BookSide::Bids),
+        book_ask: side(book, BookSide::Asks),
         feed_bid: trades
             .and_then(|t| t.get("bestBid"))
             .and_then(Value::as_f64),
@@ -486,6 +542,27 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    #[test]
+    fn retain_property_keeps_one_property_and_every_other_field() {
+        let path = format!(
+            "{}/tests/fixtures/competitiveness/orders-open.json",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let mut payload: Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        payload["meta"] = json!({"kept": true});
+        let total = payload["orders"].as_array().unwrap().len();
+        retain_property(&mut payload, "01SAMPLEPROP00000000000001");
+        let kept = payload["orders"].as_array().unwrap();
+        assert!(!kept.is_empty() && kept.len() < total);
+        assert!(kept
+            .iter()
+            .all(|o| o["propertyId"] == "01SAMPLEPROP00000000000001"));
+        // Every status survives: `orders list` filters by property, not status.
+        assert!(kept.iter().any(|o| o["status"] != "active"));
+        assert_eq!(payload["meta"]["kept"], true);
+    }
+
     fn book(bids: Vec<f64>, asks: Vec<f64>) -> Value {
         json!({"orderbook": {
             "bids": bids.iter().map(|p| json!({"price": p, "quantity": 1})).collect::<Vec<_>>(),
@@ -494,6 +571,26 @@ mod tests {
     fn feed(best_bid: f64, best_ask: f64, prints: Vec<(f64, u64)>) -> Value {
         json!({"bestBid": best_bid, "bestAsk": best_ask,
                "recentTrades": prints.iter().map(|(p,t)| json!({"price": p, "createdAt": t})).collect::<Vec<_>>()})
+    }
+
+    #[test]
+    fn an_empty_ask_level_is_ignored_and_one_without_quantity_still_counts() {
+        // Safety-critical: the buy-side crossing objection reads the book's best
+        // ask. A zero-quantity level is empty and must not set it; a level with
+        // no quantity field must still set it (fail closed), or a crossing buy
+        // would pass unchallenged.
+        let path = format!(
+            "{}/tests/fixtures/book/orderbook-zero-and-missing-quantity.json",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let b: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let t = feed(50.0, 60.0, vec![(51.5, 1)]);
+        let m = market_view(Some(&b), Some(&t));
+        assert_eq!(m.book_ask, Some(52.0));
+        let why = m
+            .objection("buy", 52.5)
+            .expect("must object to a crossing buy");
+        assert!(why.contains("52.00"), "{why}");
     }
 
     #[test]

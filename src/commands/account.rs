@@ -174,12 +174,7 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
                 .get("usdc")
                 .and_then(Value::as_f64)
                 .unwrap_or(0.0);
-            let orders = client
-                .get("/public/v1/orders", &[("all", "true".into())])?
-                .get("orders")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
+            let orders = super::orders::open_orders(&client, None)?;
             let positions = client
                 .get("/public/v1/account/positions", &[])?
                 .get("positions")

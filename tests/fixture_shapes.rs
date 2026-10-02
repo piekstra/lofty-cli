@@ -284,3 +284,43 @@ fn fee_rates_use_two_different_unit_conventions() {
         );
     }
 }
+
+#[test]
+fn competitiveness_fixtures_mirror_the_live_order_and_book_shapes() {
+    // `orders competitiveness` attributes book quantity to you by matching your
+    // open orders' `price`/`quantity` (or `orderId` on the legacy per-order
+    // envelope). The synthetic fixtures must carry the same fields the captured
+    // ones do, or the tests prove nothing about live data.
+    let live_order = &fixture("account/orders-list.json")["orders"][0];
+    let orders = fixture("competitiveness/orders-open.json");
+    for o in orders["orders"].as_array().unwrap() {
+        for k in live_order.as_object().unwrap().keys() {
+            assert!(o.get(k).is_some(), "synthetic order missing `{k}`");
+        }
+    }
+    let live_level = &fixture("public/property-orderbook.json")["orderbook"]["bids"][0];
+    for name in [
+        "orderbook-shared-top.json",
+        "orderbook-alone-on-top.json",
+        "orderbook-bids-only.json",
+    ] {
+        let book = fixture(&format!("competitiveness/{name}"));
+        for side in ["bids", "asks"] {
+            for l in book["orderbook"][side].as_array().unwrap() {
+                for k in live_level.as_object().unwrap().keys() {
+                    assert!(l.get(k).is_some(), "{name} level missing `{k}`");
+                }
+            }
+        }
+    }
+    let legacy = &fixture("orderbook.json")["data"]["orderBook"]["buyOrders"][0];
+    let book = fixture("competitiveness/orderbook-legacy-ids.json");
+    for l in book["orderbook"]["orderBook"]["buyOrders"]
+        .as_array()
+        .unwrap()
+    {
+        for k in legacy.as_object().unwrap().keys() {
+            assert!(l.get(k).is_some(), "legacy level missing `{k}`");
+        }
+    }
+}

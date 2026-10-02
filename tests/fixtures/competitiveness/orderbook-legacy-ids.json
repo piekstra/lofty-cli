@@ -1,0 +1,52 @@
+{
+  "propertyId": "01SAMPLEPROP00000000000001",
+  "orderbook": {
+    "propertyId": "01SAMPLEPROP00000000000001",
+    "orderBook": {
+      "buyOrders": [
+        {
+          "quantity": 4,
+          "price": 49.81,
+          "propertyId": "01SAMPLEPROP00000000000001",
+          "id": "01SAMPLEORDER0000000000011",
+          "expireAt": 1787592000000,
+          "createdAt": 1785000000000
+        },
+        {
+          "quantity": 2,
+          "price": 49.5,
+          "propertyId": "01SAMPLEPROP00000000000001",
+          "id": "01SAMPLEOTHERORDER00000001",
+          "expireAt": 1787592000000,
+          "createdAt": 1785000000000
+        },
+        {
+          "quantity": 2,
+          "price": 49.5,
+          "propertyId": "01SAMPLEPROP00000000000001",
+          "id": "01SAMPLEORDER0000000000012",
+          "expireAt": 1787592000000,
+          "createdAt": 1785000000000
+        }
+      ],
+      "sellOrders": [
+        {
+          "quantity": 4,
+          "price": 52.75,
+          "propertyId": "01SAMPLEPROP00000000000001",
+          "id": "01SAMPLEORDER0000000000013",
+          "expireAt": 1787592000000,
+          "createdAt": 1785000000000
+        },
+        {
+          "quantity": 5,
+          "price": 53.1,
+          "propertyId": "01SAMPLEPROP00000000000001",
+          "id": "01SAMPLEOTHERORDER00000002",
+          "expireAt": 1787592000000,
+          "createdAt": 1785000000000
+        }
+      ]
+    }
+  }
+}
