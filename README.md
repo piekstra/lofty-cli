@@ -26,7 +26,7 @@ $ cargo install --git https://github.com/piekstra/lofty-cli --locked
 
 # or clone + build
 $ git clone https://github.com/piekstra/lofty-cli && cd lofty-cli
-$ make install        # cargo install --path . --force
+$ make install        # cargo install --path . --locked --force
 ```
 
 Prebuilt binaries for macOS and Linux are attached to each
