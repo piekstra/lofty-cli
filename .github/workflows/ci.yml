@@ -44,3 +44,16 @@ jobs:
           ./target/release/lofty --version
           ./target/release/lofty --help > /dev/null
           ./target/release/lofty info > /dev/null
+
+  security:
+    name: deny
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: cargo-deny
+        # deny.toml: advisories (yanked denied), licenses, bans, sources.
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
