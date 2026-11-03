@@ -110,13 +110,13 @@ credentials this CLI holds, or accepts the method you assume.
 
 ## Follow-ups
 
-- **Bump `cli-common`.** This repo pins `v0.1.2`. Upstream `HEAD` adds the
-  `documents/v1` profile (`pk-cli-documents`), which fixes the canonical
-  spelling — `documents list` plus `documents download <ID> -o <PATH>` — and
-  the `document-list/v1`, `document-download/v1`, and
-  `document-download-batch/v1` DTOs. Bump **before** any document support is
-  written here, so `lofty` adopts the family shape instead of inventing a
-  parallel one.
+- **Build document support on `pk-cli-documents`.** This repo pins
+  `cli-common` `v0.15.1`, which carries the `documents/v1` profile
+  (`pk-cli-documents`). It fixes the canonical spelling — `documents list`
+  plus `documents download <ID> -o <PATH>` — and the `document-list/v1`,
+  `document-download/v1`, and `document-download-batch/v1` DTOs. Depend on
+  it when document support is written here, so `lofty` adopts the family
+  shape instead of inventing a parallel one.
 - **Observe the real shapes.** Reaching `/taxdocuments/v2/*` needs an
   interactive session at a logged-in browser (a captured idToken, or a full
   Cognito login flow in the CLI). Both need the account owner present and are
