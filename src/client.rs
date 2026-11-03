@@ -12,6 +12,31 @@ use serde_json::Value;
 
 use crate::config::{Config, KEYCHAIN_ACCOUNT};
 
+/// What a 403 adds to Lofty's own text. A tool replaces it: its reads are not trading
+/// calls, and a 403 here can mean a wrong key or a path that does not exist.
+pub const TRADING_HINT: &str = " — if this is a trading call, enable Trading on your API key";
+
+/// A 403 from Lofty.
+pub fn forbidden(code: &str, message: &str) -> CliError {
+    CliError::Auth(format!("forbidden ({code}): {message}{TRADING_HINT}"))
+}
+
+/// A status Lofty answered with that has no meaning of its own here.
+pub fn with_status(status: u16, code: &str, message: &str) -> CliError {
+    CliError::Upstream(format!("HTTP {status} ({code}): {message}"))
+}
+
+/// Whether `message` is [`with_status`]'s for this status.
+pub fn has_status(message: &str, status: u16) -> bool {
+    message.starts_with(&format!("HTTP {status} "))
+}
+
+/// The request got no answer. A reqwest error prints the URL it was for, and this
+/// text can reach a model.
+fn no_answer(e: reqwest::Error) -> CliError {
+    CliError::Upstream(format!("request failed: {}", e.without_url()))
+}
+
 pub struct LoftyClient {
     http: reqwest::blocking::Client,
     base: String,
@@ -104,9 +129,7 @@ impl LoftyClient {
         if let Some(ik) = idempotency {
             req = req.header("Idempotency-Key", ik);
         }
-        let resp = req
-            .send()
-            .map_err(|e| CliError::Upstream(format!("request failed: {e}")))?;
+        let resp = req.send().map_err(no_answer)?;
         Self::handle(resp)
     }
 
@@ -114,9 +137,9 @@ impl LoftyClient {
     fn handle(resp: reqwest::blocking::Response) -> Result<Value, CliError> {
         let status = resp.status();
         if status.is_success() {
-            return resp
-                .json::<Value>()
-                .map_err(|e| CliError::Upstream(format!("parsing response JSON: {e}")));
+            return resp.json::<Value>().map_err(|e| {
+                CliError::Upstream(format!("parsing response JSON: {}", e.without_url()))
+            });
         }
         let retry_after = resp
             .headers()
@@ -136,9 +159,7 @@ impl LoftyClient {
             401 => Err(CliError::Auth(format!(
                 "invalid or revoked API key ({code}): {message}"
             ))),
-            403 => Err(CliError::Auth(format!(
-                "forbidden ({code}): {message} — if this is a trading call, enable Trading on your API key"
-            ))),
+            403 => Err(forbidden(code, message)),
             404 => Err(CliError::NotFound(format!("{code}: {message}"))),
             429 => Err(CliError::Upstream(format!(
                 "rate limited ({code}): {message}{}",
@@ -146,7 +167,7 @@ impl LoftyClient {
                     .map(|s| format!(" — retry after {s}s"))
                     .unwrap_or_default()
             ))),
-            s => Err(CliError::Upstream(format!("HTTP {s} ({code}): {message}"))),
+            s => Err(with_status(s, code, message)),
         }
     }
 }

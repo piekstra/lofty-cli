@@ -20,6 +20,7 @@ fn help_lists_the_standard_surface() {
         .stdout(predicate::str::contains("rewards"))
         .stdout(predicate::str::contains("amm"))
         .stdout(predicate::str::contains("self-update"))
+        .stdout(predicate::str::contains("mcp"))
         .stdout(predicate::str::contains("completions"));
 }
 

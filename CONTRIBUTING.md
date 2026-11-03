@@ -17,7 +17,8 @@ request you agree your contribution is licensed under those same terms.
   swap) must prompt for confirmation and require `--force` to proceed
   non-interactively (exit `6` otherwise). Don't add a mutation that can fire
   without one of those.
-- **Secrets never on argv or in logs.** Read them from the keychain or stdin.
+- **Secrets never on argv or in logs.** Read them from the keychain or stdin, or for
+  `lofty mcp` a named environment variable.
 
 ## Dev loop
 

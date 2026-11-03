@@ -44,6 +44,7 @@ jobs:
           ./target/release/lofty --version
           ./target/release/lofty --help > /dev/null
           ./target/release/lofty info > /dev/null
+          ./target/release/lofty mcp --list-tools > /dev/null
 
   security:
     name: deny

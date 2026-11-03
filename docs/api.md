@@ -62,6 +62,10 @@ Two consequences, both easy to get wrong:
 Note also that the CLI collapses the upstream body into its own auth error, so
 the raw `{"message":"Forbidden"}` above is only visible outside the client.
 
+The MCP tools (`src/mcp.rs`) say this to a model: a `403` is reported as something that can
+mean a wrong key or an id that does not exist, and never as a key that lacks Trading, since
+their reads are not trading calls.
+
 ## Tax documents: not reachable (blocked)
 
 `lofty catalog --group taxdocuments` lists two `Read` endpoints,
