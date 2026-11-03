@@ -676,8 +676,6 @@ fn a_missing_or_rejected_key_names_the_one_command_that_fixes_it() {
     }
 }
 
-/// A 403 here can be a wrong key or an id that does not exist (docs/api.md), and these
-/// reads are not trading calls.
 /// `auth login` writes the keychain, which the variable wins over, and the extension's
 /// bundled `lofty` is not on PATH.
 #[test]
@@ -704,6 +702,8 @@ fn a_key_passed_in_is_corrected_where_it_is_set() {
     }
 }
 
+/// A 403 here can be a wrong key or an id that does not exist (docs/api.md), and these
+/// reads are not trading calls.
 #[test]
 fn a_403_says_what_it_can_mean_and_not_to_enable_trading() {
     let says = failing_with(|| forbidden("forbidden", "Forbidden"));
