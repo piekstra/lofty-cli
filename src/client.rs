@@ -21,6 +21,11 @@ pub fn forbidden(code: &str, message: &str) -> CliError {
     CliError::Auth(format!("forbidden ({code}): {message}{TRADING_HINT}"))
 }
 
+/// Whether `message` is [`forbidden`]'s.
+pub fn is_forbidden(message: &str) -> bool {
+    message.ends_with(TRADING_HINT)
+}
+
 /// A status Lofty answered with that has no meaning of its own here.
 pub fn with_status(status: u16, code: &str, message: &str) -> CliError {
     CliError::Upstream(format!("HTTP {status} ({code}): {message}"))

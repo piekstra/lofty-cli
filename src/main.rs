@@ -27,12 +27,11 @@ use mcp::{LiveSource, LoftyTools};
 
 const BIN: &str = "lofty";
 const REPO: &str = "piekstra/lofty-cli";
-
-/// Lofty marketplace from the command line — market data, order books,
-/// LP-reward programs, and (with a trading key) limit orders and AMM swaps.
 /// The keychain item `mcp --new-token` saves the `--http` bearer token in.
 const MCP_TOKEN_ACCOUNT: &str = "mcp-http-token";
 
+/// Lofty marketplace from the command line — market data, order books,
+/// LP-reward programs, and (with a trading key) limit orders and AMM swaps.
 #[derive(Parser, Debug)]
 #[command(name = BIN, version, about, long_about = None)]
 struct Cli {
@@ -73,8 +72,8 @@ enum Command {
     Api(api::Args),
     /// The observed internal platform endpoint inventory.
     Catalog(catalog_cmd::Args),
-    /// Serve read-only tools over your Lofty account and the marketplace to Claude
-    /// over MCP.
+    /// Serve four read-only tools to Claude over MCP: your account, orders and trades,
+    /// and one property's market.
     ///
     /// For Claude Code (`claude mcp add lofty -- lofty mcp`), Claude Desktop and any
     /// MCP client. With --http, on 127.0.0.1 behind a bearer token, for your own

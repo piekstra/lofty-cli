@@ -30,10 +30,11 @@ what a model passes cannot name another endpoint, even for a read. `src/mcp/test
 this to the requests the tools actually make. Create a read-only key for this all the same: a
 read-only key cannot trade whatever runs it.
 
-The server reads the config and the key on each call and holds neither between calls, so `auth
-login --overwrite` applies on the next call. A tool never prompts for a key or creates a
-keychain item: a missing or rejected key is an error asking the user to run `lofty auth login
---overwrite` in a terminal. On macOS a binary macOS has not granted raises a keychain prompt on
+The server reads the config and the key on each call and holds neither between calls, so a new
+key applies on the next call. A tool never prompts for a key or creates a keychain item: a
+missing or rejected key in the keychain is an error asking the user to run `lofty auth login
+--overwrite` in a terminal, and one from `$LOFTY_API_KEY`, which wins over the keychain, asks them
+to correct it where it is set, such as the Claude Desktop extension's settings. On macOS a binary macOS has not granted raises a keychain prompt on
 a call, and a server left unattended waits on it. The Claude Desktop extension does not read the
 keychain for the key, since it is given one.
 

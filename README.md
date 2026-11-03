@@ -69,9 +69,9 @@ $ lofty quote provision --property-id <ID> --bid <P> --ask <Q>   # post a fresh 
 $ lofty quote pull --property-id <ID> --keep-above <P>           # stand down, keeping recovery asks
 $ lofty amm pools|quote|swap            # swap needs a slippage bound (see Safety)
 $ lofty api GET /public/v1/amm/pools    # raw passthrough (Bearer attached)
-$ lofty mcp                              # read-only tools for Claude (see Use with Claude)
 $ lofty api --internal GET /properties/v2/marketplace   # website API (open reads)
 $ lofty catalog --group exchange        # observed endpoint inventory
+$ lofty mcp                              # read-only tools for Claude (see Use with Claude)
 ```
 
 Not everything the website does is reachable from here. `lofty api --internal`
@@ -414,7 +414,9 @@ $ claude mcp add lofty -- lofty mcp
 **Claude Desktop.** Download `lofty-<version>.mcpb` from the
 [latest release](https://github.com/piekstra/lofty-cli/releases/latest) and open it. It asks for your
 API key, keeps it in Claude Desktop's settings and passes it to the bundled `lofty` as
-`$LOFTY_API_KEY`, so it touches no keychain.
+`$LOFTY_API_KEY`, so it touches no keychain. A key that is wrong or revoked is changed in the
+extension's settings, and the tools say so. A non-empty `$LOFTY_API_KEY` wins wherever the server
+starts, so `lofty auth login` does not replace it.
 
 Any other MCP client that launches a local server can run `lofty mcp`.
 

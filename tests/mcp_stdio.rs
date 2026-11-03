@@ -20,6 +20,9 @@ const TOOLS: [&str; 4] = [
     "lofty_property",
 ];
 const PROP: &str = "01SAMPLEPROP00000000000001";
+/// Ids the stub answers with Lofty's refusals, to run those through the real client.
+const FORBIDDEN_PROP: &str = "01FORBIDDENPROP00000000001";
+const REFUSED_PROP: &str = "01REFUSEDPROP0000000000001";
 
 fn dummy_key() -> String {
     format!("lofty_test_{}", "a".repeat(32))
@@ -94,13 +97,16 @@ fn stub_api() -> (String, Seen) {
                 p if p.ends_with(PROP) => Some(fixture("public/property-get.json")),
                 _ => None,
             };
+            let refused = |status, code: &str| {
+                let body = json!({"error": {"code": code, "message": "dummy refusal"}});
+                (status, body.to_string())
+            };
             let (status, body) = match body {
+                _ if !authorized => refused("401 Unauthorized", "unauthorized"),
+                _ if path.ends_with(FORBIDDEN_PROP) => refused("403 Forbidden", "forbidden"),
+                _ if path.ends_with(REFUSED_PROP) => refused("400 Bad Request", "bad_request"),
                 Some(b) => ("200 OK", b),
-                None => (
-                    "404 Not Found",
-                    json!({"error": {"code": "not_found", "message": "no such record"}})
-                        .to_string(),
-                ),
+                None => refused("404 Not Found", "not_found"),
             };
             let _ = write!(
                 stream,
@@ -281,7 +287,46 @@ fn a_malformed_key_in_the_environment_is_an_auth_error() {
     assert!(text(&call).starts_with("auth:"), "{call}");
     assert!(text(&call).contains("LOFTY_API_KEY"), "{call}");
     assert!(!text(&call).contains("not-a-key-value"), "{call}");
+    assert!(text(&call).contains("extension's settings"), "{call}");
+    assert!(!text(&call).contains("auth login"), "{call}");
     assert!(seen.lock().unwrap().is_empty());
+}
+
+/// What a key from the variable gets when Lofty rejects it: `auth login` writes the
+/// keychain, which the variable wins over.
+#[test]
+fn a_rejected_key_from_the_environment_is_corrected_where_it_is_set() {
+    let (url, _) = stub_api();
+    let mut command = lofty("revoked", Some(&url));
+    command.env("LOFTY_API_KEY", format!("lofty_test_{}", "b".repeat(32)));
+    let mut s = Server::start(command);
+    s.initialize();
+    let call = s.call(1, "lofty_account", json!({}));
+    assert_eq!(call["result"]["isError"], true, "{call}");
+    assert!(text(&call).starts_with("auth:"), "{call}");
+    assert!(text(&call).contains("extension's settings"), "{call}");
+    assert!(!text(&call).contains("auth login"), "{call}");
+}
+
+/// Lofty's refusals through the real client, since a tool reads what the client made of
+/// them from its message text: a change to either side fails here.
+#[test]
+fn the_real_clients_403_and_400_reach_the_tools_as_what_they_mean() {
+    let (url, _) = stub_api();
+    let mut command = lofty("refusals", Some(&url));
+    command.env("LOFTY_API_KEY", dummy_key());
+    let mut s = Server::start(command);
+    s.initialize();
+
+    let call = s.call(1, "lofty_property", json!({"property_id": FORBIDDEN_PROP}));
+    assert_eq!(call["result"]["isError"], true, "{call}");
+    assert!(text(&call).starts_with("auth:"), "{call}");
+    assert!(text(&call).contains("an id that does not exist"), "{call}");
+    assert!(!text(&call).contains("enable Trading"), "{call}");
+
+    let call = s.call(2, "lofty_property", json!({"property_id": REFUSED_PROP}));
+    assert_eq!(call["result"]["isError"], true, "{call}");
+    assert!(text(&call).starts_with("usage:"), "{call}");
 }
 
 /// A bad argument is refused before the key is read.

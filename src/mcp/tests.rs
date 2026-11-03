@@ -33,6 +33,7 @@ struct Fake {
     /// What a listing lookup answers with, for any id not in `answers`.
     any_listing: Rc<RefCell<Option<Answer>>>,
     requests: Rc<RefCell<Vec<Request>>>,
+    key_is_passed_in: bool,
 }
 
 impl Fake {
@@ -96,6 +97,9 @@ impl Source for Fake {
     type Api = Fake;
     fn open(&self) -> Result<Fake, CliError> {
         Ok(self.clone())
+    }
+    fn key_is_passed_in(&self) -> bool {
+        self.key_is_passed_in
     }
 }
 
@@ -189,6 +193,9 @@ fn listing_the_tools_opens_nothing() {
         type Api = Fake;
         fn open(&self) -> Result<Fake, CliError> {
             panic!("listing the tools must not read the config or the key");
+        }
+        fn key_is_passed_in(&self) -> bool {
+            panic!("listing the tools asked where the key comes from")
         }
     }
     let tools = LoftyTools::new(Refuses);
@@ -378,6 +385,21 @@ fn a_rate_limit_stops_the_lookups_and_a_bad_key_fails_the_call() {
     }));
     let says = error(&fake, ACCOUNT_TOOL, json!({}));
     assert!(says.starts_with("auth:"), "{says}");
+}
+
+/// Lofty can answer 403 for a listing it no longer serves, and the key has just worked.
+#[test]
+fn a_403_on_one_lookup_leaves_that_address_out_and_keeps_the_balances() {
+    let fake = account_fake().failing(&format!("/public/v1/properties/{PROP}"), || {
+        forbidden("forbidden", "Forbidden")
+    });
+    let out = ok(&fake, ACCOUNT_TOOL, json!({}));
+    assert_eq!(out["usdc"], "1234.56", "{out}");
+    assert!(out["items"][0].get("address").is_none(), "{out}");
+    assert!(
+        out["note"].as_str().unwrap().starts_with("1 addresses"),
+        "{out}"
+    );
 }
 
 #[test]
@@ -656,6 +678,32 @@ fn a_missing_or_rejected_key_names_the_one_command_that_fixes_it() {
 
 /// A 403 here can be a wrong key or an id that does not exist (docs/api.md), and these
 /// reads are not trading calls.
+/// `auth login` writes the keychain, which the variable wins over, and the extension's
+/// bundled `lofty` is not on PATH.
+#[test]
+fn a_key_passed_in_is_corrected_where_it_is_set() {
+    let passed_in = |e: fn() -> CliError| {
+        let fake = Fake {
+            key_is_passed_in: true,
+            ..Fake::default()
+        }
+        .failing(&format!("/public/v1/properties/{PROP}"), e);
+        error(&fake, PROPERTY_TOOL, json!({"property_id": PROP}))
+    };
+    for says in [
+        passed_in(|| CliError::Auth("invalid or revoked API key (x): revoked".into())),
+        passed_in(|| forbidden("forbidden", "Forbidden")),
+    ] {
+        assert!(says.starts_with("auth:"), "{says}");
+        assert!(
+            says.contains("Claude Desktop extension's settings"),
+            "{says}"
+        );
+        assert!(says.contains("$LOFTY_API_KEY"), "{says}");
+        assert!(!says.contains("auth login"), "{says}");
+    }
+}
+
 #[test]
 fn a_403_says_what_it_can_mean_and_not_to_enable_trading() {
     let says = failing_with(|| forbidden("forbidden", "Forbidden"));

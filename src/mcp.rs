@@ -7,9 +7,10 @@
 //! over paths built here from fixed text and a checked property id.
 //!
 //! The key is read once per call, from `$LOFTY_API_KEY` (how the Claude Desktop extension
-//! passes it) and then the keychain, and is not held between calls, so `auth login
-//! --overwrite` applies on the next one. An API key does not rotate, so nothing here
-//! renews anything or takes a lock.
+//! passes it) and then the keychain, and is not held between calls, so a new one applies on
+//! the next. A rejected key's error names where that key came from, since `auth login` does
+//! not replace a variable. An API key does not rotate, so nothing here renews anything or
+//! takes a lock.
 //!
 //! An answer Lofty did not give is an error and never a zero: a field of the wrong type
 //! fails the call, a field Lofty left out is absent from the result, and no result carries
@@ -27,7 +28,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::client::{has_status, LoftyClient, TRADING_HINT};
+use crate::client::{has_status, is_forbidden, LoftyClient, TRADING_HINT};
 use crate::commands::book::{self, BookSide};
 use crate::commands::orders::is_open;
 use crate::commands::portfolio::RentStatus;
@@ -44,6 +45,10 @@ const SIGN_IN: &str = "lofty auth login --overwrite";
 
 /// The environment variable the Claude Desktop extension passes its key in.
 pub const KEY_VAR: &str = "LOFTY_API_KEY";
+/// What to do about a key from [`KEY_VAR`], where `auth login` would not help: it writes the
+/// keychain, which the variable wins over, and the extension's own `lofty` is not on PATH.
+const CORRECT_THE_PASSED_KEY: &str = "Ask the user to correct the API key in the Claude Desktop \
+     extension's settings, or in $LOFTY_API_KEY where the server is started, then call again";
 
 /// The most trades Lofty is asked for. It says nothing when it has more.
 const TRADES_ASKED: usize = 200;
@@ -67,6 +72,8 @@ impl Reads for LoftyClient {
 pub trait Source {
     type Api: Reads;
     fn open(&self) -> Result<Self::Api, CliError>;
+    /// Whether a call's key comes from [`KEY_VAR`] and not the keychain.
+    fn key_is_passed_in(&self) -> bool;
 }
 
 pub struct LiveSource {
@@ -90,15 +97,24 @@ impl Source for LiveSource {
         })?;
         LoftyClient::with_key(&cfg, key.expose())
     }
+
+    fn key_is_passed_in(&self) -> bool {
+        passed_in(std::env::var(KEY_VAR).ok()).is_some()
+    }
 }
 
-/// The key a call uses. An empty variable is an unset one, and a malformed one is
-/// refused here, without repeating it, rather than sent to Lofty.
+/// An empty variable is an unset one.
+fn passed_in(from_env: Option<String>) -> Option<String> {
+    from_env.filter(|k| !k.trim().is_empty())
+}
+
+/// The key a call uses. A malformed variable is refused here, without repeating it, rather
+/// than sent to Lofty.
 fn api_key(
     from_env: Option<String>,
     stored: impl FnOnce() -> Result<Option<Secret>, CliError>,
 ) -> Result<Secret, CliError> {
-    match from_env.filter(|k| !k.trim().is_empty()) {
+    match passed_in(from_env) {
         Some(key) if crate::looks_like_key(key.trim()) => Ok(Secret::new(key.trim())),
         Some(_) => Err(CliError::Auth(format!(
             "${KEY_VAR} is not a Lofty API key (expected lofty_live_… or lofty_test_…)"
@@ -108,18 +124,27 @@ fn api_key(
 }
 
 /// A provider failure as a tool error, with the fix that one has.
-fn tool_err(e: CliError) -> ToolError {
+fn tool_err(e: CliError, key_is_passed_in: bool) -> ToolError {
     match e {
         // Lofty's trap (docs/api.md): a wrong key, and a path or id that does not exist,
         // can both answer 403.
-        CliError::Auth(m) if m.ends_with(TRADING_HINT) => ToolError::auth(format!(
+        CliError::Auth(m) if is_forbidden(&m) => ToolError::auth(format!(
             "Lofty refused this read, {}, which can mean a wrong key or an id that does not exist",
             m.trim_end_matches(TRADING_HINT)
         ))
-        .with_fix(
+        .with_fix(if key_is_passed_in {
+            format!(
+                "Check any property_id against lofty_account or lofty.ai. If it is right: \
+                 {CORRECT_THE_PASSED_KEY}"
+            )
+        } else {
             "Check any property_id against lofty_account or lofty.ai. If it is right, ask the \
-             user to run `lofty auth login --overwrite` in a terminal, then call again",
-        ),
+             user to run `lofty auth login --overwrite` in a terminal, then call again"
+                .to_string()
+        }),
+        CliError::Auth(m) if key_is_passed_in => {
+            ToolError::auth(m).with_fix(CORRECT_THE_PASSED_KEY)
+        }
         CliError::NotFound(m) => ToolError::not_found(format!("Lofty has no such record: {m}"))
             .with_fix("Check property_id against lofty_account or lofty.ai, then call again"),
         CliError::Upstream(m) if has_status(&m, 400) => {
@@ -515,7 +540,11 @@ impl<S: Source> LoftyTools<S> {
     }
 
     fn open(&self) -> Result<S::Api, ToolError> {
-        self.source.open().map_err(tool_err)
+        self.source.open().map_err(|e| self.err(e))
+    }
+
+    fn err(&self, e: CliError) -> ToolError {
+        tool_err(e, self.source.key_is_passed_in())
     }
 }
 
@@ -598,10 +627,10 @@ impl<S: Source> LoftyTools<S> {
         let api = self.open()?;
         let balance = api
             .get("/public/v1/account/balance", &[])
-            .map_err(tool_err)?;
+            .map_err(|e| self.err(e))?;
         let positions = api
             .get("/public/v1/account/positions", &[])
-            .map_err(tool_err)?;
+            .map_err(|e| self.err(e))?;
 
         let mut all = rows(&positions, "positions")?
             .iter()
@@ -628,7 +657,7 @@ impl<S: Source> LoftyTools<S> {
             .collect();
 
         let window = page.offset()..page.offset().saturating_add(page.limit());
-        let unlocated = locate(&api, &mut matched, window)?;
+        let unlocated = locate(&api, &mut matched, window).map_err(|e| self.err(e))?;
         let note = (unlocated > 0).then(|| {
             format!(
                 "{unlocated} addresses could not be looked up this time; lofty_property gives \
@@ -667,7 +696,7 @@ impl<S: Source> LoftyTools<S> {
         let answer = self
             .open()?
             .get("/public/v1/orders", &[("all", "true".into())])
-            .map_err(tool_err)?;
+            .map_err(|e| self.err(e))?;
         let mut kept: Vec<(f64, OrderItem)> = Vec::new();
         for row in rows(&answer, "orders")? {
             let keep = match status.as_deref() {
@@ -736,7 +765,7 @@ impl<S: Source> LoftyTools<S> {
         let answer = self
             .open()?
             .get("/public/v1/account/trades", &query)
-            .map_err(tool_err)?;
+            .map_err(|e| self.err(e))?;
         let trades = rows(&answer, "trades")?;
         let complete = trades.len() < TRADES_ASKED;
 
@@ -790,17 +819,17 @@ impl<S: Source> LoftyTools<S> {
         let api = self.open()?;
         let got = api
             .get(&format!("/public/v1/properties/{id}"), &[])
-            .map_err(tool_err)?;
+            .map_err(|e| self.err(e))?;
         let listing = listing_of(&got);
         let answer_book = api
             .get(&format!("/public/v1/properties/{id}/orderbook"), &[])
-            .map_err(tool_err)?;
+            .map_err(|e| self.err(e))?;
         if answer_book.get("orderbook").is_none_or(|b| !b.is_object()) {
             return Err(malformed("orderbook is missing"));
         }
         let feed = api
             .get(&format!("/public/v1/properties/{id}/trades"), &[])
-            .map_err(tool_err)?;
+            .map_err(|e| self.err(e))?;
 
         let bids = book::levels(&answer_book, BookSide::Bids);
         let asks = book::levels(&answer_book, BookSide::Asks);
@@ -858,14 +887,15 @@ impl<S: Source> LoftyTools<S> {
 
 /// Fill in the address of the positions on this page: Lofty's positions name only an
 /// id, which is no answer to what someone holds. An address is a label and no figure,
-/// so one that cannot be had is left out and counted, and a sign-in failure is still an
-/// error. A rate limit or the budget stops the lookups, so they do not use up the key's
-/// reads. Returns how many are missing.
+/// so one that cannot be had is left out and counted, including one Lofty answers 403
+/// for, as it can a listing it no longer serves. A rejected key is still an error. A rate
+/// limit or the budget stops the lookups, so they do not use up the key's reads. Returns
+/// how many are missing.
 fn locate<A: Reads>(
     api: &A,
     positions: &mut [PositionItem],
     window: std::ops::Range<usize>,
-) -> Result<usize, ToolError> {
+) -> Result<usize, CliError> {
     let deadline = Instant::now() + ADDRESS_BUDGET;
     let mut missing = 0;
     let mut stopped = false;
@@ -882,7 +912,8 @@ fn locate<A: Reads>(
                 Ok(Some(address)) => position.address = Some(address),
                 Ok(None) | Err(_) => missing += 1,
             },
-            Err(e @ (CliError::Auth(_) | CliError::Keychain(_))) => return Err(tool_err(e)),
+            Err(CliError::Auth(m)) if is_forbidden(&m) => missing += 1,
+            Err(e @ (CliError::Auth(_) | CliError::Keychain(_))) => return Err(e),
             Err(CliError::NotFound(_)) => missing += 1,
             Err(_) => {
                 missing += 1;
