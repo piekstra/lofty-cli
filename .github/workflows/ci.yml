@@ -13,6 +13,9 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: read
+
 jobs:
   verify:
     name: verify (${{ matrix.os }})
