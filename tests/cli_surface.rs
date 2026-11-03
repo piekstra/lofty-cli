@@ -200,6 +200,19 @@ fn completions_render_for_zsh() {
 }
 
 #[test]
+fn no_color_in_the_environment_never_fails_a_command() {
+    // Any non-empty NO_COLOR disables color (no-color.org); parsed as a
+    // bool, the conventional NO_COLOR=1 was a usage error.
+    for v in ["1", "true", "0", ""] {
+        lofty()
+            .env("NO_COLOR", v)
+            .args(["completions", "bash"])
+            .assert()
+            .success();
+    }
+}
+
+#[test]
 fn quote_recenter_bad_args_fail_before_the_keychain_is_touched() {
     // AGENTS.md: validate args and confirm BEFORE touching the keychain or
     // network, so bad args never prompt or hang. A recenter naming neither side
