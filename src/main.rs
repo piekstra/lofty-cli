@@ -27,8 +27,6 @@ use mcp::{LiveSource, LoftyTools};
 
 const BIN: &str = "lofty";
 const REPO: &str = "piekstra/lofty-cli";
-/// The keychain item `mcp --new-token` saves the `--http` bearer token in.
-const MCP_TOKEN_ACCOUNT: &str = "mcp-http-token";
 
 /// Lofty marketplace from the command line — market data, order books,
 /// LP-reward programs, and (with a trading key) limit orders and AMM swaps.
@@ -241,7 +239,7 @@ fn auth(
         AuthCmd::Logout(args) => {
             if args.forget {
                 creds.delete(KEYCHAIN_ACCOUNT)?;
-                creds.delete(MCP_TOKEN_ACCOUNT)?;
+                creds.delete(pk_cli_mcp::HTTP_TOKEN_ACCOUNT)?;
                 store.clear()?;
                 if !cli.common.quiet {
                     eprintln!(
@@ -249,7 +247,7 @@ fn auth(
                     );
                 }
             } else if !cli.common.quiet {
-                eprintln!("nothing session-scoped to clear (API keys are stateless); use --forget to remove the stored key");
+                eprintln!("nothing session-scoped to clear (API keys are stateless); use --forget to remove the stored key and the connector token");
             }
             Ok(())
         }

@@ -19,4 +19,4 @@ signal.
 - `self-update` says to restart a running `lofty mcp --http` and to install the new
   `.mcpb`.
 - A failure that got no answer from Lofty no longer prints its URL.
-- cli-common v0.21.0, up from v0.15.1. The minimum Rust version is 1.89.
+- cli-common v0.22.0, up from v0.15.1. The minimum Rust version is 1.89.
