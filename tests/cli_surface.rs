@@ -297,3 +297,12 @@ fn api_refuses_a_plain_http_url_before_the_keychain() {
         .code(2)
         .stderr(predicate::str::contains("only https is allowed"));
 }
+
+#[test]
+fn config_set_refuses_a_base_url_off_https() {
+    lofty()
+        .args(["config", "set", "base_url", "http://api.example.invalid"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("only https is allowed"));
+}

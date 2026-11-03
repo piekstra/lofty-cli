@@ -14,6 +14,7 @@ use clap_complete::Shell;
 use pk_cli_auth::{AuthStatus, LoginArgs, LogoutArgs, SetCredentialArgs};
 use pk_cli_config::ConfigStore;
 use pk_cli_core::info::{AuthInfo, CliInfo};
+use pk_cli_core::transport::require_secure_url;
 use pk_cli_core::{output, CliError, CommonArgs};
 use pk_cli_secrets::CredentialStore;
 use pk_cli_selfupdate::{SelfUpdateArgs, Updater};
@@ -203,6 +204,10 @@ fn auth(
                     "an API key is already stored; pass --overwrite to replace it".into(),
                 ));
             }
+            if !args.no_verify {
+                // The key goes to this host, so refuse it before asking for the key.
+                require_secure_url(&cfg.base_url())?;
+            }
             let prompt = if args.non_interactive {
                 None
             } else {
@@ -291,6 +296,9 @@ fn config_cmd(cli: &Cli, cmd: &ConfigCmd, store: &ConfigStore) -> Result<(), Cli
             Ok(())
         }
         ConfigCmd::Set { key, value } => {
+            if key == "base_url" {
+                require_secure_url(value)?;
+            }
             let mut cfg: Config = store.load()?;
             match key.as_str() {
                 "base_url" => cfg.base_url = Some(value.clone()),

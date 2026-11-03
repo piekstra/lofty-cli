@@ -8,7 +8,7 @@ in a public issue.
 
 | Secret | Where it lives | Notes |
 | --- | --- | --- |
-| Lofty API key | OS keychain, service `piekstra.lofty`, item `api-key`. For the MCP tools only, `$LOFTY_API_KEY` comes first, and the Claude Desktop extension keeps its key in Claude Desktop's settings and passes it that way | Sent only to `base_url`, `https://api.lofty.ai` unless you changed it in your own config file |
+| Lofty API key | OS keychain, service `piekstra.lofty`, item `api-key`. For the MCP tools only, `$LOFTY_API_KEY` comes first, and the Claude Desktop extension keeps its key in Claude Desktop's settings and passes it that way | Sent only to `base_url`, `https://api.lofty.ai` unless you changed it in your own config file. `base_url` and `lofty api` URLs must be `https`: plain `http` is refused except to this machine, and so is a redirect that leaves `https` |
 | `--http` bearer token | OS keychain, service `piekstra.lofty`, item `mcp-http-token`, or `LOFTY_MCP_TOKEN`; **a copy in your Cloudflare Worker**, as its `HOME_LOFTY_TOKEN` secret | Only if you use `lofty mcp --http`. It admits a caller to the read-only tools. It signs in to nothing at Lofty |
 
 Secrets never go on argv, in a log or in a file in this repository. Config is non-secret, and
