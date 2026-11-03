@@ -288,3 +288,21 @@ fn account_portfolio_help_renders() {
         .success()
         .stdout(predicate::str::contains("rent"));
 }
+
+#[test]
+fn api_refuses_a_plain_http_url_before_the_keychain() {
+    lofty()
+        .args(["api", "GET", "http://api.example.invalid/v1/account"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("only https is allowed"));
+}
+
+#[test]
+fn config_set_refuses_a_base_url_off_https() {
+    lofty()
+        .args(["config", "set", "base_url", "http://api.example.invalid"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("only https is allowed"));
+}
