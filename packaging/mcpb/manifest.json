@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "lofty",
   "display_name": "Lofty (lofty)",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Read-only access to your own Lofty balances, holdings, limit orders and trades, through the open-source lofty CLI.",
   "long_description": "Ask Claude about your fractional real-estate holdings at Lofty: your balances, what you hold, what it is worth and the rent it has earned, your resting limit orders and executed trades, and one property's figures and market. Four read-only tools: lofty_account, lofty_orders, lofty_trades and lofty_property. No tool can place or cancel an order, swap or change anything at Lofty, even with a key that allows trading; still, create a read-only API key for this. Your key is kept in Claude Desktop's settings and sent only to Lofty's API. What the tools return goes to Claude as part of your conversation. Unofficial; not affiliated with or endorsed by Lofty.",
   "author": {

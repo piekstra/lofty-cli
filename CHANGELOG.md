@@ -4,6 +4,14 @@ All notable changes to `lofty-cli` are documented here, from 0.2.0 on. Newest fi
 project follows [SemVer](https://semver.org/); until 1.0, minors carry the breaking-change
 signal.
 
+## 0.2.1 — 2026-11-03
+
+- `lofty api GET http://...` is refused with exit 2 before the keychain or the network,
+  and so is a `base_url` off `https`. Either one used to send the API key in the clear.
+  Plain `http` to this machine still works.
+- A redirect that leaves `https` is refused, and the error says why. Built on cli-common
+  v0.24.0.
+
 ## 0.2.0 — 2026-11-03
 
 - `lofty mcp`: read-only tools for Claude, `lofty_account`, `lofty_orders`, `lofty_trades`

@@ -6,6 +6,7 @@
 //! header (deduplicated upstream for 24h). Rate limits per key: 300 reads/min
 //! and 30 writes/min (60/min per account).
 
+use pk_cli_core::transport::{require_secure_url, secure_redirects};
 use pk_cli_core::CliError;
 use pk_cli_secrets::CredentialStore;
 use serde_json::Value;
@@ -39,7 +40,11 @@ pub fn has_status(message: &str, status: u16) -> bool {
 /// The request got no answer. A reqwest error prints the URL it was for, and this
 /// text can reach a model.
 fn no_answer(e: reqwest::Error) -> CliError {
-    CliError::Upstream(format!("request failed: {}", e.without_url()))
+    // Through `CliError::from`, so a refused redirect keeps its reason.
+    match CliError::from(e) {
+        CliError::Upstream(message) => CliError::Upstream(format!("request failed: {message}")),
+        other => other,
+    }
 }
 
 pub struct LoftyClient {
@@ -48,14 +53,22 @@ pub struct LoftyClient {
     key: Option<String>,
 }
 
+fn http_client() -> Result<reqwest::blocking::Client, CliError> {
+    pk_cli_http::builder("lofty", env!("CARGO_PKG_VERSION"))
+        .redirect(secure_redirects())
+        .build()
+        .map_err(|e| CliError::Other(format!("failed to build HTTP client: {e}")))
+}
+
 impl LoftyClient {
     /// Client for authenticated calls; errors with exit 3 if no key is stored.
     pub fn new(cfg: &Config, creds: &CredentialStore) -> Result<Self, CliError> {
+        require_secure_url(&cfg.base_url())?;
         let key = creds
             .get(KEYCHAIN_ACCOUNT)?
             .ok_or_else(|| CliError::Auth("no API key stored — run `lofty auth login`".into()))?;
         Ok(Self {
-            http: pk_cli_http::client("lofty", env!("CARGO_PKG_VERSION"))?,
+            http: http_client()?,
             base: cfg.base_url(),
             key: Some(key.expose().to_string()),
         })
@@ -64,8 +77,9 @@ impl LoftyClient {
     /// Client with an explicit key (used by `auth login --no-verify=false` to
     /// verify a candidate key before storing it).
     pub fn with_key(cfg: &Config, key: &str) -> Result<Self, CliError> {
+        require_secure_url(&cfg.base_url())?;
         Ok(Self {
-            http: pk_cli_http::client("lofty", env!("CARGO_PKG_VERSION"))?,
+            http: http_client()?,
             base: cfg.base_url(),
             key: Some(key.to_string()),
         })
@@ -74,7 +88,7 @@ impl LoftyClient {
     /// Unauthenticated client (internal `/prod` passthrough; some reads are open).
     pub fn anonymous(base: &str) -> Result<Self, CliError> {
         Ok(Self {
-            http: pk_cli_http::client("lofty", env!("CARGO_PKG_VERSION"))?,
+            http: http_client()?,
             base: base.to_string(),
             key: None,
         })
@@ -213,6 +227,75 @@ fn idempotency_key() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A stub on 127.0.0.1. Answers each request with `respond(request)` as a raw
+    /// HTTP response, and keeps each request so a test can see what arrived.
+    fn stub(
+        respond: impl Fn(&str) -> String + Send + 'static,
+    ) -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log = seen.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let mut stream = stream.unwrap();
+                let mut raw = Vec::new();
+                let mut buf = [0u8; 4096];
+                let request = loop {
+                    let n = stream.read(&mut buf).unwrap_or(0);
+                    raw.extend_from_slice(&buf[..n]);
+                    let text = String::from_utf8_lossy(&raw).into_owned();
+                    let complete = text.split_once("\r\n\r\n").is_some_and(|(head, body)| {
+                        let length = head
+                            .lines()
+                            .find_map(|l| {
+                                let (name, value) = l.split_once(':')?;
+                                name.eq_ignore_ascii_case("content-length")
+                                    .then(|| value.trim().parse::<usize>().ok())?
+                            })
+                            .unwrap_or(0);
+                        body.len() >= length
+                    });
+                    if n == 0 || complete {
+                        break text;
+                    }
+                };
+                let response = respond(&request);
+                log.lock().unwrap().push(request);
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        (base, seen)
+    }
+
+    fn redirect_to(location: &str) -> String {
+        format!("HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+    }
+
+    #[test]
+    fn a_redirect_that_leaves_https_is_refused() {
+        let (base, seen) = stub(|_| redirect_to("http://www.example.invalid/next"));
+        let err = LoftyClient::anonymous(&base)
+            .unwrap()
+            .request(reqwest::Method::GET, &format!("{base}/start"), None)
+            .unwrap_err();
+        assert!(err.to_string().contains("leaves https"), "{err}");
+        assert_eq!(seen.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_base_url_off_https_is_refused() {
+        let cfg = Config {
+            base_url: Some("http://api.example.invalid".into()),
+            ..Config::default()
+        };
+        let err = LoftyClient::with_key(&cfg, "dummy-key")
+            .err()
+            .expect("refused");
+        assert!(err.to_string().contains("only https is allowed"), "{err}");
+    }
 
     #[test]
     fn idempotency_keys_are_uuid_shaped_and_unique() {

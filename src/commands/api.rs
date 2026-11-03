@@ -33,7 +33,9 @@ pub fn run(ctx: &Ctx, args: &Args) -> Result<(), CliError> {
     } else {
         ctx.cfg.base_url()
     };
-    let url = args.api.url(&base);
+    // The API key goes with this request, so an `http://` URL is refused before
+    // the prompt, the keychain or the network.
+    let url = args.api.secure_url(&base)?;
     if method != reqwest::Method::GET {
         super::confirm(ctx, args.force, &format!("{method} {url}"))?;
     }

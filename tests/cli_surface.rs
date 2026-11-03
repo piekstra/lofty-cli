@@ -288,3 +288,12 @@ fn account_portfolio_help_renders() {
         .success()
         .stdout(predicate::str::contains("rent"));
 }
+
+#[test]
+fn api_refuses_a_plain_http_url_before_the_keychain() {
+    lofty()
+        .args(["api", "GET", "http://api.example.invalid/v1/account"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("only https is allowed"));
+}
