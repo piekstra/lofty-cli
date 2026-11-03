@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 
 /// Why a property does or does not pay rent right now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RentStatus {
+pub enum RentStatus {
     Renting,
     Vacant,
     Delinquent,
@@ -29,7 +29,7 @@ impl RentStatus {
     /// is zero or negative has nothing to distribute. `monthly_rent` is
     /// deliberately NOT consulted — it is observed as `0` on occupied,
     /// distributing properties.
-    fn of(listing: Option<&Value>) -> Self {
+    pub fn of(listing: Option<&Value>) -> Self {
         let Some(p) = listing else {
             return Self::Unknown;
         };
@@ -54,7 +54,7 @@ impl RentStatus {
     }
 
     /// Wire name in `account-portfolio/v1`.
-    fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Renting => "renting",
             Self::Vacant => "vacant",

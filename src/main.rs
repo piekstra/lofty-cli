@@ -7,6 +7,7 @@ mod catalog;
 mod client;
 mod commands;
 mod config;
+mod mcp;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
@@ -22,6 +23,7 @@ use commands::{
     account, amm, api, catalog as catalog_cmd, orders, properties, quote, rewards, Ctx,
 };
 use config::{Config, KEYCHAIN_ACCOUNT};
+use mcp::{LiveSource, LoftyTools};
 
 const BIN: &str = "lofty";
 const REPO: &str = "piekstra/lofty-cli";
@@ -68,6 +70,13 @@ enum Command {
     Api(api::Args),
     /// The observed internal platform endpoint inventory.
     Catalog(catalog_cmd::Args),
+    /// Serve four read-only tools to Claude over MCP: your account, orders and trades,
+    /// and one property's market.
+    ///
+    /// For Claude Code (`claude mcp add lofty -- lofty mcp`), Claude Desktop and any
+    /// MCP client. With --http, on 127.0.0.1 behind a bearer token, for your own
+    /// Cloudflare Worker (see README). No tool can place or cancel an order or swap.
+    Mcp(pk_cli_mcp::McpArgs),
     /// Update to the latest release from GitHub.
     SelfUpdate(SelfUpdateArgs),
     /// Print a shell completion script.
@@ -82,7 +91,8 @@ enum AuthCmd {
     Login(LoginArgs),
     /// Report credential state (auth-status/v1).
     Status,
-    /// Clear the session; --forget also removes the stored API key.
+    /// Clear the session; --forget also removes the stored API key and the connector's
+    /// bearer token.
     Logout(LogoutArgs),
     /// Raw keychain write for rotation / headless setup.
     SetCredential(SetCredentialArgs),
@@ -110,6 +120,12 @@ fn main() {
 fn run(cli: &Cli) -> Result<(), CliError> {
     let store = ConfigStore::new(BIN);
     let creds = CredentialStore::for_binary(BIN);
+    // Before the config is read: listing the tools reads no file and no credential,
+    // and a running server reads both on each call, so a later `auth login` or
+    // `config set` applies and a malformed file is one tool's error, not no server.
+    if let Command::Mcp(args) = &cli.command {
+        return pk_cli_mcp::run(args, LoftyTools::new(LiveSource::new(store, creds)));
+    }
     let cfg: Config = store.load()?;
     let ctx = Ctx {
         common: &cli.common,
@@ -128,13 +144,19 @@ fn run(cli: &Cli) -> Result<(), CliError> {
         Command::Quote(cmd) => quote::run(&ctx, cmd),
         Command::Api(args) => api::run(&ctx, args),
         Command::Catalog(args) => catalog_cmd::run(&ctx, args),
+        Command::Mcp(_) => unreachable!("served before the config is read"),
         Command::SelfUpdate(args) => Updater {
             repo: REPO.into(),
             binary: BIN.into(),
             target: env!("BUILD_TARGET").into(),
             current: env!("CARGO_PKG_VERSION").into(),
         }
-        .run(args, cli.common.json, cli.common.quiet),
+        .run_noting(
+            args,
+            cli.common.json,
+            cli.common.quiet,
+            &pk_cli_mcp::restart_note(BIN),
+        ),
         Command::Completions { shell } => {
             clap_complete::generate(*shell, &mut Cli::command(), BIN, &mut std::io::stdout());
             Ok(())
@@ -158,6 +180,7 @@ fn run(cli: &Cli) -> Result<(), CliError> {
                     "quote",
                     "api",
                     "catalog",
+                    "mcp",
                 ],
             );
             output::json(&serde_json::to_value(&info).unwrap());
@@ -216,12 +239,15 @@ fn auth(
         AuthCmd::Logout(args) => {
             if args.forget {
                 creds.delete(KEYCHAIN_ACCOUNT)?;
+                creds.delete(pk_cli_mcp::HTTP_TOKEN_ACCOUNT)?;
                 store.clear()?;
                 if !cli.common.quiet {
-                    eprintln!("API key removed from the keychain; config cleared");
+                    eprintln!(
+                        "API key and connector token removed from the keychain; config cleared"
+                    );
                 }
             } else if !cli.common.quiet {
-                eprintln!("nothing session-scoped to clear (API keys are stateless); use --forget to remove the stored key");
+                eprintln!("nothing session-scoped to clear (API keys are stateless); use --forget to remove the stored key and the connector token");
             }
             Ok(())
         }
@@ -241,7 +267,7 @@ fn auth(
     }
 }
 
-fn looks_like_key(s: &str) -> bool {
+pub(crate) fn looks_like_key(s: &str) -> bool {
     let rest = s
         .strip_prefix("lofty_live_")
         .or_else(|| s.strip_prefix("lofty_test_"));

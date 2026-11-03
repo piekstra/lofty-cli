@@ -1,100 +1,240 @@
-name: Release
+name: release
 
-# Automatic releases. On every push to `main`, if the version in Cargo.toml has
-# no matching `v<version>` git tag yet, this builds per-platform binaries and
-# publishes a release (creating the tag at the merge commit). So cutting a
-# release is just: bump `version` in Cargo.toml and merge — no manual tagging.
-# Can also be run by hand from the Actions tab (workflow_dispatch).
+# Cut a release by pushing a tag like `v0.2.0`. Cross-platform artifacts live
+# here rather than in per-push CI, so the expensive macOS runner (about 10x
+# Linux) and the Windows runner (about 2x) are billed once per release
+# instead of once per commit. One job per OS: Linux, Windows, and ONE macOS
+# job (Apple Silicon, which cross-compiles the Intel target; the macOS SDK is
+# universal). Build jobs are independent (fail-fast: false) and each attaches
+# its own tarballs, so a slow or dead macOS queue never blocks the Linux
+# assets. The `.mcpb` (Claude Desktop extension) needs all three, so it is
+# packed last, on Linux.
 #
-# Assets are `lofty-<target>.tar.gz`, exactly the name `lofty self-update` looks
-# for on the latest release. aarch64 Linux is intentionally omitted: the
-# secret-service keyring backend links libdbus, awkward to cross-compile.
-
+# Only `publish`, which runs on a tag alone and runs no third-party build
+# code, can write to the repository; building and packing (cargo, npx)
+# happen with a read-only token that checkout does not persist.
+#
+# The versions are checked before anything is built: the tag, Cargo.toml
+# and the .mcpb manifest must agree, or nothing is built or published.
+# `publish` attaches whatever was built to a draft, even when one OS failed, and
+# publishes it only once every expected asset is there. A missing one fails the
+# run and leaves the draft, and `self-update` keeps finding the last whole release.
+#
+# A pull request that changes how releases are built, or the dependencies
+# and version (Cargo.toml, Cargo.lock), runs every job but `publish` as a
+# dry run: everything is built and packed, nothing is attached to a
+# release. The Windows and macOS builds run nowhere else, so a dependency
+# that breaks them shows on its pull request, not on the tag. The version
+# agreement also runs on every pull request, in tests/packaging.rs.
 on:
   push:
-    branches: [main]
+    tags: ["v*"]
   workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - "packaging/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  check:
-    name: check version
+  # The manifest's version must be the crate's, and on a tag the tag's, or
+  # self-update and Claude Desktop would see one version and run another.
+  versions:
+    name: check versions
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.v.outputs.version }}
-      release: ${{ steps.v.outputs.release }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # need tags to tell whether this version already shipped
-      - id: v
+          persist-credentials: false
+      - name: Tag, Cargo.toml and manifest agree
         run: |
-          version=$(sed -nE 's/^version = "(.*)"/\1/p' Cargo.toml | head -1)
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          if git tag -l "v$version" | grep -q .; then
-            echo "release=false" >> "$GITHUB_OUTPUT"
-            echo "v$version already released — nothing to do." >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "release=true" >> "$GITHUB_OUTPUT"
-            echo "Releasing v$version." >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          manifest_version=$(jq -r .version packaging/mcpb/manifest.json)
+          if [ "$manifest_version" != "$version" ]; then
+            echo "::error::packaging/mcpb/manifest.json is $manifest_version but Cargo.toml is $version"
+            exit 1
+          fi
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match Cargo.toml version $version"
+            exit 1
           fi
 
   build:
-    name: build ${{ matrix.target }}
-    needs: check
-    if: needs.check.outputs.release == 'true'
+    name: build ${{ matrix.name }}
+    needs: versions
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - target: aarch64-apple-darwin
-            os: macos-latest
-          - target: x86_64-apple-darwin
-            os: macos-latest
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
+          - os: macos-15
+            name: apple (aarch64 + x86_64)
+            targets: "aarch64-apple-darwin x86_64-apple-darwin"
+          - os: ubuntu-latest
+            name: linux x86_64
+            targets: "x86_64-unknown-linux-gnu"
+          - os: windows-latest
+            name: windows x86_64
+            targets: "x86_64-pc-windows-msvc"
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.target }}
-      - name: linux deps
-        # dbus dev headers for the secret-service keyring backend (Linux only).
+      - name: Install Linux build deps
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
-      - name: build
-        run: cargo build --release --locked --target ${{ matrix.target }}
-      - name: package
+      # Asset names are the contract `lofty self-update` resolves against:
+      # <bin>-<target>.tar.gz plus a sibling .sha256. The bare binaries also
+      # go to bin/<target>/ for the .mcpb job.
+      - name: Build and package each target
         run: |
-          tar -czf "lofty-${{ matrix.target }}.tar.gz" -C "target/${{ matrix.target }}/release" lofty
-          shasum -a 256 "lofty-${{ matrix.target }}.tar.gz" > "lofty-${{ matrix.target }}.tar.gz.sha256"
+          set -euo pipefail
+          sha256() { if command -v shasum >/dev/null; then shasum -a 256 "$1"; else sha256sum "$1"; fi; }
+          for t in ${{ matrix.targets }}; do
+            rustup target add "$t"
+            cargo build --release --locked --target "$t"
+            exe=lofty
+            case "$t" in *windows*) exe=lofty.exe ;; esac
+            tar -C "target/$t/release" -czf "lofty-$t.tar.gz" "$exe"
+            sha256 "lofty-$t.tar.gz" > "lofty-$t.tar.gz.sha256"
+            mkdir -p "bin/$t"
+            cp "target/$t/release/$exe" "bin/$t/"
+          done
+      # Claude Desktop picks a binary by OS, not by CPU, so the .mcpb carries
+      # one universal macOS binary.
+      - name: Universal macOS binary
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p bin/universal-apple-darwin
+          lipo -create -output bin/universal-apple-darwin/lofty \
+            bin/aarch64-apple-darwin/lofty bin/x86_64-apple-darwin/lofty
+          lipo -info bin/universal-apple-darwin/lofty
+      # `make smoke`, on what this runner can execute, so a binary that builds and then
+      # fails at startup is not published. The x86_64 macOS slice cannot run on this
+      # arm64 runner. None of this reads a credential.
+      - name: Run what this runner can run
+        run: |
+          set -euo pipefail
+          case "$RUNNER_OS" in
+            macOS) bins=(bin/aarch64-apple-darwin/lofty bin/universal-apple-darwin/lofty) ;;
+            Windows) bins=(bin/x86_64-pc-windows-msvc/lofty.exe) ;;
+            *) bins=(bin/x86_64-unknown-linux-gnu/lofty) ;;
+          esac
+          for b in "${bins[@]}"; do
+            "$b" --version
+            "$b" mcp --list-tools > /dev/null
+          done
       - uses: actions/upload-artifact@v4
         with:
-          name: lofty-${{ matrix.target }}
-          path: lofty-${{ matrix.target }}.tar.gz*
+          name: bin-${{ runner.os }}
+          path: bin/
+          retention-days: 3
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ runner.os }}
+          path: |
+            lofty-*.tar.gz
+            lofty-*.tar.gz.sha256
+          retention-days: 3
+          if-no-files-found: error
 
-  release:
-    name: publish release
-    needs: [check, build]
-    if: needs.check.outputs.release == 'true'
+  mcpb:
+    name: pack the Claude Desktop extension
+    needs: build
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bin-*
+          path: bin
+          merge-multiple: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # The `versions` job has already held the manifest to Cargo.toml and
+      # the tag.
+      - name: Assemble, validate and pack
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          stage="$RUNNER_TEMP/lofty"
+          mkdir -p "$stage/server/linux"
+          cp packaging/mcpb/manifest.json LICENSE "$stage/"
+          cp bin/universal-apple-darwin/lofty "$stage/server/lofty"
+          cp bin/x86_64-pc-windows-msvc/lofty.exe "$stage/server/lofty.exe"
+          cp bin/x86_64-unknown-linux-gnu/lofty "$stage/server/linux/lofty"
+          # Artifacts drop the executable bit; the .mcpb keeps what it is given.
+          chmod +x "$stage/server/lofty" "$stage/server/linux/lofty"
+          npx -y @anthropic-ai/mcpb@2.1.2 validate "$stage/manifest.json"
+          npx -y @anthropic-ai/mcpb@2.1.2 pack "$stage" "lofty-$version.mcpb"
+          sha256sum "lofty-$version.mcpb" > "lofty-$version.mcpb.sha256"
+          unzip -Z "lofty-$version.mcpb"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-mcpb
+          path: lofty-*.mcpb*
+          retention-days: 7
+          if-no-files-found: error
+
+  # Attaches whatever was built to a draft, even when one OS failed, so a dead
+  # macOS queue still leaves the Linux and Windows tarballs there. Publishes the
+  # draft only when nothing expected is missing, and otherwise fails. Never runs
+  # when the versions disagree.
+  publish:
+    name: publish the release
+    needs: [versions, build, mcpb]
+    if: ${{ !cancelled() && needs.versions.result == 'success' && startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
+          pattern: dist-*
           path: dist
           merge-multiple: true
-      - name: publish
-        uses: softprops/action-gh-release@v2
+      - run: ls -l dist
+      - uses: softprops/action-gh-release@v2
         with:
-          # Create the tag at this commit; non-draft/non-prerelease so
-          # `self-update` (releases/latest) finds it.
-          tag_name: v${{ needs.check.outputs.version }}
-          files: dist/*
+          draft: true
+          files: |
+            dist/lofty-*.tar.gz
+            dist/lofty-*.tar.gz.sha256
+            dist/lofty-*.mcpb
+            dist/lofty-*.mcpb.sha256
           generate_release_notes: true
-          fail_on_unmatched_files: true
+      - name: Every expected asset was attached
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          missing=0
+          for t in aarch64-apple-darwin x86_64-apple-darwin x86_64-unknown-linux-gnu x86_64-pc-windows-msvc; do
+            for f in "lofty-$t.tar.gz" "lofty-$t.tar.gz.sha256"; do
+              [ -f "dist/$f" ] || { echo "::error::missing $f"; missing=1; }
+            done
+          done
+          for f in "lofty-$version.mcpb" "lofty-$version.mcpb.sha256"; do
+            [ -f "dist/$f" ] || { echo "::error::missing $f"; missing=1; }
+          done
+          exit "$missing"
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest

@@ -257,8 +257,13 @@ pub fn open_orders(
         .cloned()
         .unwrap_or_default()
         .into_iter()
-        .filter(|o| o.get("status").and_then(Value::as_str) == Some("active"))
+        .filter(is_open)
         .collect())
+}
+
+/// Whether an order is still resting on the book.
+pub fn is_open(order: &Value) -> bool {
+    order.get("status").and_then(Value::as_str) == Some("active")
 }
 
 /// Keep only one property's orders in an `/orders` payload, leaving every other

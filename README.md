@@ -21,7 +21,7 @@ cleanly in scripts and agents.
 ## Install
 
 ```console
-# from source (recent stable Rust; MSRV 1.88)
+# from source (recent stable Rust; MSRV 1.89)
 $ cargo install --git https://github.com/piekstra/lofty-cli --locked
 
 # or clone + build
@@ -29,7 +29,7 @@ $ git clone https://github.com/piekstra/lofty-cli && cd lofty-cli
 $ make install        # cargo install --path . --locked --force
 ```
 
-Prebuilt binaries for macOS and Linux are attached to each
+Prebuilt binaries for macOS, Linux and Windows are attached to each
 [release](https://github.com/piekstra/lofty-cli/releases); once installed,
 `lofty self-update` upgrades in place.
 
@@ -42,9 +42,10 @@ $ lofty rewards programs      # who pays for liquidity, and the rules
 ```
 
 The key is verified against `/account/balance` before it's stored (skip with
-`--no-verify`) and lives only in the OS keychain (service `piekstra.lofty`) —
-never on disk, never in argv, never in logs. Enable **Trading** on the key in
-your Lofty dashboard to place/cancel orders and swap.
+`--no-verify`) and lives in the OS keychain (service `piekstra.lofty`) — never on
+disk, never in argv, never in logs. Enable **Trading** on the key in your Lofty
+dashboard to place/cancel orders and swap. The one other source is `$LOFTY_API_KEY`,
+which only `lofty mcp` reads ([Use with Claude](#use-with-claude)).
 
 ## Commands
 
@@ -70,6 +71,7 @@ $ lofty amm pools|quote|swap            # swap needs a slippage bound (see Safet
 $ lofty api GET /public/v1/amm/pools    # raw passthrough (Bearer attached)
 $ lofty api --internal GET /properties/v2/marketplace   # website API (open reads)
 $ lofty catalog --group exchange        # observed endpoint inventory
+$ lofty mcp                              # read-only tools for Claude (see Use with Claude)
 ```
 
 Not everything the website does is reachable from here. `lofty api --internal`
@@ -354,6 +356,96 @@ total $0.5625 across 1 maker fill(s) at 50% of your side's fee; 0 taker fill(s) 
 Maker/taker isn't flagged on a trade record, so it's inferred from whether one of
 your orders rested at that exact price and side. Unmatched trades are reported as
 takers rather than optimistically credited. Figures above are illustrative.
+
+## Use with Claude
+
+`lofty mcp` serves four read-only tools over MCP, so Claude can answer questions about your
+own Lofty account. There is no hosted service: the tools run on your computer, in your copy of
+`lofty`, and call Lofty's API with your key.
+
+| Tool | Answers |
+| --- | --- |
+| `lofty_account` | What do I hold, what is it worth, what has it earned? Balances, and each property's address, tokens, cost basis, value and rent earned, narrowed by `property_id`; `include_sold` adds properties fully sold |
+| `lofty_orders` | What is on the book? Resting limit orders newest first; `status` asks for others (`all`, `cancelled`), narrowed by `property_id` or `direction` |
+| `lofty_trades` | What did I trade, and when? Executed buys and sells newest first, narrowed by `property_id`, `direction` or `since`/`until` (UTC) |
+| `lofty_property` | What is this property doing? Its figures, whether it pays rent, and its best bid and ask from both the order book and the trade feed, which can disagree |
+
+No tool can place or cancel an order, swap or change anything, whatever the key allows: there is
+no such tool, the tools have no verb but `GET`, and `--allow-writes` adds nothing. Create a
+read-only key for this all the same. The marketplace listing, LP rewards and AMM pools are not
+served, to stay within the size limit on tool definitions; `lofty properties list`, `rewards` and
+`amm` have them.
+
+Results are concise by default (`response_format: "detailed"` adds a position's spend and sale
+value, a trade's fee and id, and a property's book, description and building facts), 25 records a
+page with a cursor for more. No result carries your user id or a chain transaction id. A trade
+list reads Lofty's latest 200, and `complete: false` says older ones can be missing. A figure Lofty
+left out is absent rather than zero, and an answer of the wrong shape is an error. `lofty_account`
+reads Lofty once more for each position on the page, for its address, at 300 reads a minute per
+key; an address that cannot be had is left out, and a `note` says so. Each page reads Lofty again,
+so a row that changes between pages can repeat or be skipped: for a count, read one call with
+`limit` up to 200. Descriptions come from Lofty; the server tells Claude to treat them as data, not
+instructions.
+
+The tools are worded for a model, so names differ from `--json`, which passes Lofty's own through:
+snake case (`cost_basis` for `costBasis`, `rent_earned` for `totalRentEarned`, `tokens` for
+`currentTokens`), dates as UTC `YYYY-MM-DD` for millisecond timestamps, and money as decimal strings
+for numbers. Token counts and percents stay numbers.
+
+**Give it a key first.** Run `lofty auth login` in a terminal (see [Quick start](#quick-start)).
+Claude Code and `--http` use that key from the OS keychain (service `piekstra.lofty`). When the key
+is missing or rejected the tools say so and ask you to run `lofty auth login --overwrite`. They
+never ask for it themselves.
+
+**Claude Code.** Add the `lofty-cli` plugin from the
+[piekstra plugin marketplace](https://github.com/piekstra/claude-plugins):
+
+```console
+$ claude plugin marketplace add piekstra/claude-plugins
+$ claude plugin install lofty-cli@piekstra-plugins
+```
+
+or register the server yourself:
+
+```console
+$ claude mcp add lofty -- lofty mcp
+```
+
+**Claude Desktop.** Download `lofty-<version>.mcpb` from the
+[latest release](https://github.com/piekstra/lofty-cli/releases/latest) and open it. It asks for your
+API key, keeps it in Claude Desktop's settings and passes it to the bundled `lofty` as
+`$LOFTY_API_KEY`, so it touches no keychain. A key that is wrong or revoked is changed in the
+extension's settings, and the tools say so. A non-empty `$LOFTY_API_KEY` wins wherever the server
+starts, so `lofty auth login` does not replace it.
+
+Any other MCP client that launches a local server can run `lofty mcp`.
+
+**Claude on the web and mobile.** claude.ai reaches tools through a remote connector, so `lofty`
+serves the same tools from your computer to a connector you deploy into your own Cloudflare account:
+
+```console
+$ lofty mcp --new-token            # once: a bearer token, saved in the keychain and printed for the Worker
+$ lofty mcp --http --port 8739     # serve on 127.0.0.1 only
+```
+
+The connector, [cli-common's `connector/`](https://github.com/piekstra/cli-common/tree/main/connector#tools-from-your-computer-home-modules),
+reaches that port through a Cloudflare Tunnel in your account; its README walks through the tunnel,
+the VPC service, a launchd agent that keeps the server running, and the `HOME_LOFTY_TOKEN` secret,
+with the threat model. `--http` binds 127.0.0.1 only, refuses to start without the token, refuses any
+request whose `Host` is not loopback or that carries an `Origin`, and serves the read-only tools
+only. Your Lofty key stays on your computer, but tool results do not: your balances, holdings, orders
+and trades pass through Cloudflare and reach Claude ([`SECURITY.md`](SECURITY.md)). While the computer
+sleeps, the tools answer that it is offline.
+
+After `lofty self-update`, restart the server: a running one keeps the old code, and its launchd agent
+restarts it only when it exits. Its start line names the version.
+
+```console
+$ launchctl kickstart -k gui/$(id -u)/com.piekstra.lofty-mcp-http
+```
+
+`self-update` does not reach a Claude Desktop extension, which runs its own copy. Install the new
+release's `.mcpb` too.
 
 ## JSON, exit codes, limits
 

@@ -1,0 +1,94 @@
+{
+  "manifest_version": "0.3",
+  "name": "lofty",
+  "display_name": "Lofty (lofty)",
+  "version": "0.2.0",
+  "description": "Read-only access to your own Lofty balances, holdings, limit orders and trades, through the open-source lofty CLI.",
+  "long_description": "Ask Claude about your fractional real-estate holdings at Lofty: your balances, what you hold, what it is worth and the rent it has earned, your resting limit orders and executed trades, and one property's figures and market. Four read-only tools: lofty_account, lofty_orders, lofty_trades and lofty_property. No tool can place or cancel an order, swap or change anything at Lofty, even with a key that allows trading; still, create a read-only API key for this. Your key is kept in Claude Desktop's settings and sent only to Lofty's API. What the tools return goes to Claude as part of your conversation. Unofficial; not affiliated with or endorsed by Lofty.",
+  "author": {
+    "name": "piekstra",
+    "url": "https://github.com/piekstra"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/piekstra/lofty-cli"
+  },
+  "homepage": "https://github.com/piekstra/lofty-cli",
+  "documentation": "https://github.com/piekstra/lofty-cli#use-with-claude",
+  "support": "https://github.com/piekstra/lofty-cli/issues",
+  "license": "MIT",
+  "keywords": [
+    "lofty",
+    "real-estate",
+    "finance",
+    "read-only"
+  ],
+  "server": {
+    "type": "binary",
+    "entry_point": "server/lofty",
+    "mcp_config": {
+      "command": "${__dirname}/server/lofty",
+      "args": [
+        "mcp"
+      ],
+      "env": {
+        "LOFTY_API_KEY": "${user_config.api_key}"
+      },
+      "platform_overrides": {
+        "win32": {
+          "command": "${__dirname}/server/lofty.exe",
+          "args": [
+            "mcp"
+          ],
+          "env": {
+            "LOFTY_API_KEY": "${user_config.api_key}"
+          }
+        },
+        "linux": {
+          "command": "${__dirname}/server/linux/lofty",
+          "args": [
+            "mcp"
+          ],
+          "env": {
+            "LOFTY_API_KEY": "${user_config.api_key}"
+          }
+        }
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "lofty_account",
+      "description": "Your balances, and each property's tokens, cost basis, value and rent earned."
+    },
+    {
+      "name": "lofty_orders",
+      "description": "Your limit orders: what is resting on the book and at what price."
+    },
+    {
+      "name": "lofty_trades",
+      "description": "Your executed buys and sells, by date, property and direction."
+    },
+    {
+      "name": "lofty_property",
+      "description": "One property's figures, whether it pays rent, and its market."
+    }
+  ],
+  "tools_generated": false,
+  "user_config": {
+    "api_key": {
+      "type": "string",
+      "title": "Lofty API key",
+      "description": "From Lofty, under Account, Settings, API Keys. Create a read-only key: these tools never trade, and a read-only key keeps it that way.",
+      "sensitive": true,
+      "required": true
+    }
+  },
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ]
+  }
+}

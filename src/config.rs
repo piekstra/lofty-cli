@@ -1,7 +1,7 @@
-//! Non-secret settings (`~/.config/lofty/config.toml`).
+//! Non-secret settings (`~/.config/lofty/config.json`).
 //!
-//! The API key lives in the OS keychain (`piekstra.lofty`, account `api-key`),
-//! never here.
+//! The API key lives in the OS keychain (`piekstra.lofty`, account `api-key`), and
+//! `lofty mcp` reads `$LOFTY_API_KEY` first. It is never here.
 
 use serde::{Deserialize, Serialize};
 
