@@ -4,6 +4,12 @@ All notable changes to `lofty-cli` are documented here, from 0.2.0 on. Newest fi
 project follows [SemVer](https://semver.org/); until 1.0, minors carry the breaking-change
 signal.
 
+## 0.2.3 — 2026-11-04
+
+- `lofty_trades`: a row with no `tradeId` is an upstream error. It used to fall to the count within its day.
+- `auth logout --forget` says what it does not end: a running `lofty mcp --http` keeps the token it started with, and one on `$LOFTY_MCP_TOKEN` never had an item to remove.
+- cli-common v0.29.0, up from v0.27.0.
+
 ## 0.2.2 — 2026-11-03
 
 - `lofty_orders` and `lofty_trades` page by position, so a row that arrives between pages repeats

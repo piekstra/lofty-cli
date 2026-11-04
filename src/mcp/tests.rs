@@ -503,28 +503,24 @@ fn an_order_placed_between_pages_repeats_nothing_and_skips_nothing() {
     assert_eq!(sorted, ["a", "b", "c", "d"], "{seen:?}");
 }
 
-/// The same with trades, some with no id to tell them apart: a position counts those it has passed.
+/// The same with trades.
 #[test]
 fn a_trade_made_between_pages_repeats_nothing_and_skips_nothing() {
-    let trade = |id: Option<&str>, created: u64, quantity: u64| {
-        let mut row = json!({"propertyId": PROP, "direction": "buy", "price": 50.0,
-                             "quantity": quantity, "createdAt": created});
-        if let Some(id) = id {
-            row["tradeId"] = json!(id);
-        }
-        row
+    let trade = |id: &str, created: u64, quantity: u64| {
+        json!({"tradeId": id, "propertyId": PROP, "direction": "buy", "price": 50.0,
+               "quantity": quantity, "createdAt": created})
     };
     let fake = |rows: Vec<Value>| {
         Fake::default().answering("/public/v1/account/trades", json!({"trades": rows}))
     };
     const DAY: u64 = 86_400_000;
     let before = vec![
-        trade(Some("d"), 4 * DAY, 4),
-        trade(None, 3 * DAY, 3),
-        trade(None, 3 * DAY, 2),
-        trade(Some("a"), DAY, 1),
+        trade("d", 4 * DAY, 4),
+        trade("c", 3 * DAY, 3),
+        trade("b", 3 * DAY, 2),
+        trade("a", DAY, 1),
     ];
-    let mut after = vec![trade(Some("e"), 5 * DAY, 5)];
+    let mut after = vec![trade("e", 5 * DAY, 5)];
     after.extend(before.clone());
     let quantities = |page: &Value| -> Vec<u64> {
         page["items"]
@@ -547,6 +543,19 @@ fn a_trade_made_between_pages_repeats_nothing_and_skips_nothing() {
     }
     seen.sort_unstable();
     assert_eq!(seen, [1, 2, 3, 4]);
+}
+
+/// A row with no id could not hold its place in a position cursor, so it fails the call.
+#[test]
+fn a_trade_with_no_id_is_an_upstream_error() {
+    let fake = Fake::default().answering(
+        "/public/v1/account/trades",
+        json!({"trades": [{"propertyId": PROP, "direction": "buy", "price": 50.0,
+                           "quantity": 1, "createdAt": 86_400_000u64}]}),
+    );
+    let says = error(&fake, TRADES_TOOL, json!({}));
+    assert!(says.starts_with("upstream:"), "{says}");
+    assert!(says.contains("tradeId"), "{says}");
 }
 
 /// `?propertyId=` reports a partially filled order's original quantity.
@@ -615,8 +624,8 @@ fn a_range_narrows_trades_and_a_bad_one_is_refused() {
     let fake = Fake::default().answering(
         "/public/v1/account/trades",
         json!({"trades": [
-            {"propertyId": PROP, "direction": "buy", "createdAt": 1_767_225_600_000_i64},
-            {"propertyId": PROP, "direction": "sell", "createdAt": 1_751_328_000_000_i64},
+            {"tradeId": "b", "propertyId": PROP, "direction": "buy", "createdAt": 1_767_225_600_000_i64},
+            {"tradeId": "a", "propertyId": PROP, "direction": "sell", "createdAt": 1_751_328_000_000_i64},
         ]}),
     );
     let out = ok(&fake, TRADES_TOOL, json!({"since": "2026-01-01"}));
@@ -636,7 +645,7 @@ fn a_range_narrows_trades_and_a_bad_one_is_refused() {
 #[test]
 fn as_many_trades_as_were_asked_for_is_an_incomplete_list() {
     let rows: Vec<Value> = (0..TRADES_ASKED)
-        .map(|i| json!({"propertyId": PROP, "direction": "buy", "createdAt": 1_767_225_600_000_i64 + i as i64}))
+        .map(|i| json!({"tradeId": i.to_string(), "propertyId": PROP, "direction": "buy", "createdAt": 1_767_225_600_000_i64 + i as i64}))
         .collect();
     let fake = Fake::default().answering("/public/v1/account/trades", json!({ "trades": rows }));
     let out = ok(&fake, TRADES_TOOL, json!({}));

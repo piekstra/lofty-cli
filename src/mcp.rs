@@ -780,7 +780,7 @@ impl<S: Source> LoftyTools<S> {
             let created = required(number(row, "createdAt")?, "createdAt")?;
             let date = iso_date(created);
             let trade_direction = required(text(row, "direction")?, "direction")?;
-            let trade_id = text(row, "tradeId")?;
+            let trade_id = required(text(row, "tradeId")?, "tradeId")?;
             let fee_key = if trade_direction == "buy" {
                 "buyerFeeAmount"
             } else {
@@ -792,7 +792,7 @@ impl<S: Source> LoftyTools<S> {
                 price: money(row, "price")?,
                 quantity: number(row, "quantity")?,
                 fee: money(row, fee_key)?.filter(|_| detailed),
-                trade_id: trade_id.clone().filter(|_| detailed),
+                trade_id: detailed.then(|| trade_id.clone()),
                 date,
             };
             if only.is_none_or(|id| item.property_id == id)
@@ -800,8 +800,7 @@ impl<S: Source> LoftyTools<S> {
                 && since.as_deref().is_none_or(|s| item.date.as_str() >= s)
                 && until.as_deref().is_none_or(|u| item.date.as_str() <= u)
             {
-                let key =
-                    PositionKey::new(item.date.as_str(), trade_id.as_deref().unwrap_or_default());
+                let key = PositionKey::new(item.date.as_str(), &trade_id);
                 kept.push((key, item));
             }
         }
