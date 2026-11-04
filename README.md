@@ -366,8 +366,8 @@ own Lofty account. There is no hosted service: the tools run on your computer, i
 | Tool | Answers |
 | --- | --- |
 | `lofty_account` | What do I hold, what is it worth, what has it earned? Balances, and each property's address, tokens, cost basis, value and rent earned, narrowed by `property_id`; `include_sold` adds properties fully sold |
-| `lofty_orders` | What is on the book? Resting limit orders newest first; `status` asks for others (`all`, `cancelled`), narrowed by `property_id` or `direction` |
-| `lofty_trades` | What did I trade, and when? Executed buys and sells newest first, narrowed by `property_id`, `direction` or `since`/`until` (UTC) |
+| `lofty_orders` | What is on the book? Resting limit orders newest day first, in no time order within a day; `status` asks for others (`all`, `cancelled`), narrowed by `property_id` or `direction` |
+| `lofty_trades` | What did I trade, and when? Executed buys and sells newest day first, in no time order within a day, narrowed by `property_id`, `direction` or `since`/`until` (UTC) |
 | `lofty_property` | What is this property doing? Its figures, whether it pays rent, and its best bid and ask from both the order book and the trade feed, which can disagree |
 
 No tool can place or cancel an order, swap or change anything, whatever the key allows: there is

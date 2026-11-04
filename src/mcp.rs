@@ -581,7 +581,7 @@ impl<S: Source> Toolset for LoftyTools<S> {
             ToolDef::read(
                 ORDERS_TOOL,
                 "Lofty limit orders",
-                "The user's limit orders, newest first, resting ones unless status says \
+                "The user's limit orders, newest day first and in no time order within a day, resting ones unless status says \
                  otherwise. Use it to see what is on the book and at what price. An active \
                  order's quantity is what is still open.",
             )
@@ -590,7 +590,7 @@ impl<S: Source> Toolset for LoftyTools<S> {
             ToolDef::read(
                 TRADES_TOOL,
                 "Lofty executed trades",
-                "The user's executed buys and sells, newest first, from Lofty's latest 200. Use \
+                "The user's executed buys and sells, newest day first and in no time order within a day, from Lofty's latest 200. Use \
                  it for what was traded and when. complete says whether older ones can be \
                  missing.",
             )
