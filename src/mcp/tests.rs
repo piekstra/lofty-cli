@@ -460,9 +460,8 @@ fn orders_are_the_resting_ones_unless_asked_and_newest_first() {
     );
 }
 
-/// `?propertyId=` reports a partially filled order's original quantity.
-/// A page boundary falls between two orders of one moment, and a new order arrives before the
-/// next page. A cursor holds no state at Lofty, so a second fake stands for the later read.
+/// A page boundary falls between two orders of one day, and a new order arrives before the next
+/// page. A cursor holds no state at Lofty, so a second fake stands for the later read.
 #[test]
 fn an_order_placed_between_pages_repeats_nothing_and_skips_nothing() {
     let order = |id: &str, created: u64| {
@@ -471,13 +470,14 @@ fn an_order_placed_between_pages_repeats_nothing_and_skips_nothing() {
     };
     let fake =
         |rows: Vec<Value>| Fake::default().answering("/public/v1/orders", json!({"orders": rows}));
+    const DAY: u64 = 86_400_000;
     let before = vec![
-        order("d", 4_000),
-        order("c", 3_000),
-        order("b", 3_000),
-        order("a", 1_000),
+        order("d", 4 * DAY),
+        order("c", 3 * DAY),
+        order("b", 3 * DAY),
+        order("a", DAY),
     ];
-    let mut after = vec![order("e", 5_000)];
+    let mut after = vec![order("e", 5 * DAY)];
     after.extend(before.clone());
     let ids = |page: &Value| -> Vec<String> {
         page["items"]
@@ -503,6 +503,53 @@ fn an_order_placed_between_pages_repeats_nothing_and_skips_nothing() {
     assert_eq!(sorted, ["a", "b", "c", "d"], "{seen:?}");
 }
 
+/// The same with trades, some with no id to tell them apart: a position counts those it has passed.
+#[test]
+fn a_trade_made_between_pages_repeats_nothing_and_skips_nothing() {
+    let trade = |id: Option<&str>, created: u64, quantity: u64| {
+        let mut row = json!({"propertyId": PROP, "direction": "buy", "price": 50.0,
+                             "quantity": quantity, "createdAt": created});
+        if let Some(id) = id {
+            row["tradeId"] = json!(id);
+        }
+        row
+    };
+    let fake = |rows: Vec<Value>| {
+        Fake::default().answering("/public/v1/account/trades", json!({"trades": rows}))
+    };
+    const DAY: u64 = 86_400_000;
+    let before = vec![
+        trade(Some("d"), 4 * DAY, 4),
+        trade(None, 3 * DAY, 3),
+        trade(None, 3 * DAY, 2),
+        trade(Some("a"), DAY, 1),
+    ];
+    let mut after = vec![trade(Some("e"), 5 * DAY, 5)];
+    after.extend(before.clone());
+    let quantities = |page: &Value| -> Vec<u64> {
+        page["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["quantity"].as_f64().unwrap() as u64)
+            .collect()
+    };
+
+    let first = ok(&fake(before), TRADES_TOOL, json!({"limit": 2}));
+    let mut seen = quantities(&first);
+    assert_eq!(seen[0], 4);
+    let later = fake(after);
+    let mut cursor = first["next_cursor"].clone();
+    while cursor.is_string() {
+        let page = ok(&later, TRADES_TOOL, json!({"limit": 2, "cursor": cursor}));
+        seen.extend(quantities(&page));
+        cursor = page["next_cursor"].clone();
+    }
+    seen.sort_unstable();
+    assert_eq!(seen, [1, 2, 3, 4]);
+}
+
+/// `?propertyId=` reports a partially filled order's original quantity.
 #[test]
 fn an_order_filter_is_applied_here_and_not_by_a_query() {
     let fake = full_fake();

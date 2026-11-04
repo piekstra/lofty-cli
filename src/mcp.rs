@@ -124,11 +124,6 @@ fn api_key(
     }
 }
 
-/// A timestamp as text that sorts as the number does, for a row's position in its list.
-fn created_key(millis: f64) -> String {
-    format!("{millis:020.3}")
-}
-
 /// A provider failure as a tool error, with the fix that one has.
 fn tool_err(e: CliError, key_is_passed_in: bool) -> ToolError {
     match e.reason() {
@@ -733,7 +728,7 @@ impl<S: Source> LoftyTools<S> {
             if only.is_none_or(|id| item.property_id == id)
                 && side.as_deref().is_none_or(|d| item.direction == d)
             {
-                let key = PositionKey::new(created_key(created), &item.order_id);
+                let key = PositionKey::new(item.created.as_str(), &item.order_id);
                 kept.push((key, item));
             }
         }
@@ -805,10 +800,8 @@ impl<S: Source> LoftyTools<S> {
                 && since.as_deref().is_none_or(|s| item.date.as_str() >= s)
                 && until.as_deref().is_none_or(|u| item.date.as_str() <= u)
             {
-                let key = PositionKey::new(
-                    created_key(created),
-                    trade_id.as_deref().unwrap_or_default(),
-                );
+                let key =
+                    PositionKey::new(item.date.as_str(), trade_id.as_deref().unwrap_or_default());
                 kept.push((key, item));
             }
         }

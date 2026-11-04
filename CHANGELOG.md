@@ -7,8 +7,9 @@ signal.
 ## 0.2.2 — 2026-11-03
 
 - `lofty_orders` and `lofty_trades` page by position, so a row that arrives between pages repeats
-  nothing and skips nothing. Rows of the same moment now run in a fixed order of their own. A
-  cursor from an earlier version still works, as the count of rows it holds.
+  nothing and skips nothing, past a `lofty_trades` answer with `complete: false`, whose latest-200
+  window can lose its oldest row. Rows of the same day now run in a fixed order of their own, not by
+  time of day. A cursor from an earlier version still works, as the count of rows it holds.
 - The tools read what a failure means from the error's reason, not its wording.
 - cli-common v0.27.0, up from v0.24.0.
 
