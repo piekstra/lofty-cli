@@ -6,7 +6,7 @@ inspect. Tests load these files; they are never embedded as string literals.
 
 - `public/` — real market data, unmodified (large lists trimmed to 2–3 items).
 - `account/` — real response **structure**, but personal values (ids, balances,
-  amounts) replaced with representative dummies per repo policy.
+  amounts, timestamps) replaced with representative dummies per repo policy.
 - `account/orders-list.json` also carries two representative **active** orders
   (one buy, one sell), added 2026-07-28 next to the captured cancelled ones: the
   original capture held only cancelled buys, so it couldn't exercise the

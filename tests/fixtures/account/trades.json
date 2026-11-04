@@ -9,7 +9,7 @@
       "buyerFeeAmount": 0.5,
       "sellerFeeAmount": 0.5,
       "blockchainSwapTxnId": "TXNSAMPLE0000000000000000000000000000000000000000000",
-      "createdAt": 1748144834419,
+      "createdAt": 1700086400000,
       "direction": "buy"
     },
     {
