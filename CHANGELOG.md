@@ -4,6 +4,14 @@ All notable changes to `lofty-cli` are documented here, from 0.2.0 on. Newest fi
 project follows [SemVer](https://semver.org/); until 1.0, minors carry the breaking-change
 signal.
 
+## 0.2.2 — 2026-11-03
+
+- `lofty_orders` and `lofty_trades` page by position, so a row that arrives between pages repeats
+  nothing and skips nothing. Rows of the same moment now run in a fixed order of their own. A
+  cursor from an earlier version still works, as the count of rows it holds.
+- The tools read what a failure means from the error's reason, not its wording.
+- cli-common v0.27.0, up from v0.24.0.
+
 ## 0.2.1 — 2026-11-03
 
 - `lofty api GET http://...` is refused with exit 2 before the keychain or the network,

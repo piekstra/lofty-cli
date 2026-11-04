@@ -382,9 +382,10 @@ page with a cursor for more. No result carries your user id or a chain transacti
 list reads Lofty's latest 200, and `complete: false` says older ones can be missing. A figure Lofty
 left out is absent rather than zero, and an answer of the wrong shape is an error. `lofty_account`
 reads Lofty once more for each position on the page, for its address, at 300 reads a minute per
-key; an address that cannot be had is left out, and a `note` says so. Each page reads Lofty again,
-so a row that changes between pages can repeat or be skipped: for a count, read one call with
-`limit` up to 200. Descriptions come from Lofty; the server tells Claude to treat them as data, not
+key; an address that cannot be had is left out, and a `note` says so. Each page reads Lofty again.
+`lofty_orders` and `lofty_trades` pick up from the last row's own position, so a row that arrives
+between pages repeats nothing and skips nothing, and other lists can repeat or skip a row that
+changes between pages: for a count, read one call with `limit` up to 200. Descriptions come from Lofty; the server tells Claude to treat them as data, not
 instructions.
 
 The tools are worded for a model, so names differ from `--json`, which passes Lofty's own through:

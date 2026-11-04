@@ -461,6 +461,48 @@ fn orders_are_the_resting_ones_unless_asked_and_newest_first() {
 }
 
 /// `?propertyId=` reports a partially filled order's original quantity.
+/// A page boundary falls between two orders of one moment, and a new order arrives before the
+/// next page. A cursor holds no state at Lofty, so a second fake stands for the later read.
+#[test]
+fn an_order_placed_between_pages_repeats_nothing_and_skips_nothing() {
+    let order = |id: &str, created: u64| {
+        json!({"orderId": id, "propertyId": PROP, "direction": "buy", "status": "active",
+               "price": 50.0, "quantity": 1, "createdAt": created})
+    };
+    let fake =
+        |rows: Vec<Value>| Fake::default().answering("/public/v1/orders", json!({"orders": rows}));
+    let before = vec![
+        order("d", 4_000),
+        order("c", 3_000),
+        order("b", 3_000),
+        order("a", 1_000),
+    ];
+    let mut after = vec![order("e", 5_000)];
+    after.extend(before.clone());
+    let ids = |page: &Value| -> Vec<String> {
+        page["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|o| o["order_id"].as_str().unwrap().to_string())
+            .collect()
+    };
+
+    let first = ok(&fake(before), ORDERS_TOOL, json!({"limit": 2}));
+    let mut seen = ids(&first);
+    assert_eq!(seen[0], "d");
+    let later = fake(after);
+    let mut cursor = first["next_cursor"].clone();
+    while cursor.is_string() {
+        let page = ok(&later, ORDERS_TOOL, json!({"limit": 2, "cursor": cursor}));
+        seen.extend(ids(&page));
+        cursor = page["next_cursor"].clone();
+    }
+    let mut sorted = seen.clone();
+    sorted.sort();
+    assert_eq!(sorted, ["a", "b", "c", "d"], "{seen:?}");
+}
+
 #[test]
 fn an_order_filter_is_applied_here_and_not_by_a_query() {
     let fake = full_fake();
