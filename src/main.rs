@@ -244,12 +244,11 @@ fn auth(
         AuthCmd::Logout(args) => {
             if args.forget {
                 creds.delete(KEYCHAIN_ACCOUNT)?;
-                creds.delete(pk_cli_mcp::HTTP_TOKEN_ACCOUNT)?;
+                let token_removed = creds.delete(pk_cli_mcp::HTTP_TOKEN_ACCOUNT)?;
                 store.clear()?;
                 if !cli.common.quiet {
-                    eprintln!(
-                        "API key and connector token removed from the keychain; config cleared"
-                    );
+                    eprintln!("API key removed from the keychain; config cleared");
+                    eprintln!("{}", pk_cli_mcp::forget_note(BIN, token_removed));
                 }
             } else if !cli.common.quiet {
                 eprintln!("nothing session-scoped to clear (API keys are stateless); use --forget to remove the stored key and the connector token");
