@@ -8,7 +8,7 @@ Guidance for AI coding agents (and humans) working in this repo. Tool-agnostic;
 `lofty` — a Rust CLI for the [Lofty](https://www.lofty.ai) fractional
 real-estate marketplace API. A thin, Lofty-specific layer over the shared
 [`cli-common`](https://github.com/piekstra/cli-common) `pk-cli-*` crates (auth,
-http, config, secrets, self-update, mcp), pinned to tag **v0.24.0**. This repo owns only
+http, config, secrets, self-update, mcp), pinned to tag **v0.27.0**. This repo owns only
 the Lofty commands and their DTOs.
 
 ## Build, test, lint

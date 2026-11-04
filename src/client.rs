@@ -7,34 +7,28 @@
 //! and 30 writes/min (60/min per account).
 
 use pk_cli_core::transport::{require_secure_url, secure_redirects};
-use pk_cli_core::CliError;
+use pk_cli_core::{CliError, Reason};
 use pk_cli_secrets::CredentialStore;
 use serde_json::Value;
 
 use crate::config::{Config, KEYCHAIN_ACCOUNT};
 
-/// What a 403 adds to Lofty's own text. A tool replaces it: its reads are not trading
-/// calls, and a 403 here can mean a wrong key or a path that does not exist.
-pub const TRADING_HINT: &str = " — if this is a trading call, enable Trading on your API key";
-
-/// A 403 from Lofty.
+/// A 403 from Lofty. Its remedy is kept apart, since a tool replaces it: its reads are not
+/// trading calls, and a 403 here can mean a wrong key or a path that does not exist.
 pub fn forbidden(code: &str, message: &str) -> CliError {
-    CliError::Auth(format!("forbidden ({code}): {message}{TRADING_HINT}"))
+    CliError::Auth(format!("forbidden ({code}): {message}"))
+        .because(Reason::Forbidden)
+        .with_remedy("if this is a trading call, enable Trading on your API key")
 }
 
-/// Whether `message` is [`forbidden`]'s.
-pub fn is_forbidden(message: &str) -> bool {
-    message.ends_with(TRADING_HINT)
-}
-
-/// A status Lofty answered with that has no meaning of its own here.
+/// A status Lofty answered with that has no meaning of its own here, past a 400's.
 pub fn with_status(status: u16, code: &str, message: &str) -> CliError {
-    CliError::Upstream(format!("HTTP {status} ({code}): {message}"))
-}
-
-/// Whether `message` is [`with_status`]'s for this status.
-pub fn has_status(message: &str, status: u16) -> bool {
-    message.starts_with(&format!("HTTP {status} "))
+    let error = CliError::Upstream(format!("HTTP {status} ({code}): {message}"));
+    if status == 400 {
+        error.because(Reason::BadRequest)
+    } else {
+        error
+    }
 }
 
 /// The request got no answer. A reqwest error prints the URL it was for, and this

@@ -19,16 +19,17 @@
 use std::time::{Duration, Instant};
 
 use pk_cli_config::ConfigStore;
-use pk_cli_core::{dates, CliError};
+use pk_cli_core::{dates, CliError, Reason};
 use pk_cli_mcp::{
-    parse_args, ListArgs, Page, PageRequest, Server, ToolDef, ToolError, ToolOutput, Toolset,
+    parse_args, ListArgs, Order, Page, PageRequest, PositionKey, PositionRequest, Server, ToolDef,
+    ToolError, ToolOutput, Toolset,
 };
 use pk_cli_secrets::{CredentialStore, Secret};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::client::{has_status, is_forbidden, LoftyClient, TRADING_HINT};
+use crate::client::LoftyClient;
 use crate::commands::book::{self, BookSide};
 use crate::commands::orders::is_open;
 use crate::commands::portfolio::RentStatus;
@@ -125,31 +126,37 @@ fn api_key(
 
 /// A provider failure as a tool error, with the fix that one has.
 fn tool_err(e: CliError, key_is_passed_in: bool) -> ToolError {
-    match e {
+    match e.reason() {
         // Lofty's trap (docs/api.md): a wrong key, and a path or id that does not exist,
         // can both answer 403.
-        CliError::Auth(m) if is_forbidden(&m) => ToolError::auth(format!(
-            "Lofty refused this read, {}, which can mean a wrong key or an id that does not exist",
-            m.trim_end_matches(TRADING_HINT)
-        ))
-        .with_fix(if key_is_passed_in {
-            format!(
-                "Check any property_id against lofty_account or lofty.ai. If it is right: \
-                 {CORRECT_THE_PASSED_KEY}"
-            )
-        } else {
-            "Check any property_id against lofty_account or lofty.ai. If it is right, ask the \
-             user to run `lofty auth login --overwrite` in a terminal, then call again"
-                .to_string()
-        }),
+        Some(Reason::Forbidden) => {
+            return ToolError::auth(format!(
+                "Lofty refused this read, {}, which can mean a wrong key or an id that does not \
+                 exist",
+                e.message()
+            ))
+            .with_fix(if key_is_passed_in {
+                format!(
+                    "Check any property_id against lofty_account or lofty.ai. If it is right: \
+                     {CORRECT_THE_PASSED_KEY}"
+                )
+            } else {
+                "Check any property_id against lofty_account or lofty.ai. If it is right, ask \
+                 the user to run `lofty auth login --overwrite` in a terminal, then call again"
+                    .to_string()
+            });
+        }
+        Some(Reason::BadRequest) => {
+            return ToolError::usage(format!("Lofty refused these arguments: {}", e.message()));
+        }
+        _ => {}
+    }
+    match e {
         CliError::Auth(m) if key_is_passed_in => {
             ToolError::auth(m).with_fix(CORRECT_THE_PASSED_KEY)
         }
         CliError::NotFound(m) => ToolError::not_found(format!("Lofty has no such record: {m}"))
             .with_fix("Check property_id against lofty_account or lofty.ai, then call again"),
-        CliError::Upstream(m) if has_status(&m, 400) => {
-            ToolError::usage(format!("Lofty refused these arguments: {m}"))
-        }
         // A person's answer to a prompt, or a keyring that is not running: not a bad key.
         CliError::Keychain(m) => ToolError::other(format!("the keychain could not be used: {m}"))
             .with_fix(if cfg!(target_os = "macos") {
@@ -574,7 +581,7 @@ impl<S: Source> Toolset for LoftyTools<S> {
             ToolDef::read(
                 ORDERS_TOOL,
                 "Lofty limit orders",
-                "The user's limit orders, newest first, resting ones unless status says \
+                "The user's limit orders, newest day first and in no time order within a day, resting ones unless status says \
                  otherwise. Use it to see what is on the book and at what price. An active \
                  order's quantity is what is still open.",
             )
@@ -583,7 +590,7 @@ impl<S: Source> Toolset for LoftyTools<S> {
             ToolDef::read(
                 TRADES_TOOL,
                 "Lofty executed trades",
-                "The user's executed buys and sells, newest first, from Lofty's latest 200. Use \
+                "The user's executed buys and sells, newest day first and in no time order within a day, from Lofty's latest 200. Use \
                  it for what was traded and when. complete says whether older ones can be \
                  missing.",
             )
@@ -682,7 +689,7 @@ impl<S: Source> LoftyTools<S> {
         let only = property_id(args.property_id.as_deref())?;
         let side = direction(args.direction.as_deref())?;
         let status = non_empty(args.status.as_deref()).map(str::to_ascii_lowercase);
-        let page = PageRequest::new(
+        let page = PositionRequest::new(
             &args.list,
             &OrdersFilter {
                 property_id: only,
@@ -697,7 +704,7 @@ impl<S: Source> LoftyTools<S> {
             .open()?
             .get("/public/v1/orders", &[("all", "true".into())])
             .map_err(|e| self.err(e))?;
-        let mut kept: Vec<(f64, OrderItem)> = Vec::new();
+        let mut kept: Vec<(PositionKey, OrderItem)> = Vec::new();
         for row in rows(&answer, "orders")? {
             let keep = match status.as_deref() {
                 None => is_open(row),
@@ -721,14 +728,13 @@ impl<S: Source> LoftyTools<S> {
             if only.is_none_or(|id| item.property_id == id)
                 && side.as_deref().is_none_or(|d| item.direction == d)
             {
-                kept.push((created, item));
+                let key = PositionKey::new(item.created.as_str(), &item.order_id);
+                kept.push((key, item));
             }
         }
-        kept.sort_by(|a, b| b.0.total_cmp(&a.0));
-        let matched: Vec<OrderItem> = kept.into_iter().map(|(_, item)| item).collect();
         ToolOutput::new(&OrdersOut {
-            matched: matched.len(),
-            page: page.page(matched, "property_id, direction or status")?,
+            matched: kept.len(),
+            page: page.page(kept, Order::Descending, "property_id, direction or status")?,
         })
     }
 
@@ -744,7 +750,7 @@ impl<S: Source> LoftyTools<S> {
                 )));
             }
         }
-        let page = PageRequest::new(
+        let page = PositionRequest::new(
             &args.list,
             &TradesFilter {
                 property_id: only,
@@ -769,11 +775,12 @@ impl<S: Source> LoftyTools<S> {
         let trades = rows(&answer, "trades")?;
         let complete = trades.len() < TRADES_ASKED;
 
-        let mut kept: Vec<(f64, TradeItem)> = Vec::new();
+        let mut kept: Vec<(PositionKey, TradeItem)> = Vec::new();
         for row in trades {
             let created = required(number(row, "createdAt")?, "createdAt")?;
             let date = iso_date(created);
             let trade_direction = required(text(row, "direction")?, "direction")?;
+            let trade_id = text(row, "tradeId")?;
             let fee_key = if trade_direction == "buy" {
                 "buyerFeeAmount"
             } else {
@@ -785,7 +792,7 @@ impl<S: Source> LoftyTools<S> {
                 price: money(row, "price")?,
                 quantity: number(row, "quantity")?,
                 fee: money(row, fee_key)?.filter(|_| detailed),
-                trade_id: text(row, "tradeId")?.filter(|_| detailed),
+                trade_id: trade_id.clone().filter(|_| detailed),
                 date,
             };
             if only.is_none_or(|id| item.property_id == id)
@@ -793,13 +800,13 @@ impl<S: Source> LoftyTools<S> {
                 && since.as_deref().is_none_or(|s| item.date.as_str() >= s)
                 && until.as_deref().is_none_or(|u| item.date.as_str() <= u)
             {
-                kept.push((created, item));
+                let key =
+                    PositionKey::new(item.date.as_str(), trade_id.as_deref().unwrap_or_default());
+                kept.push((key, item));
             }
         }
-        kept.sort_by(|a, b| b.0.total_cmp(&a.0));
-        let matched: Vec<TradeItem> = kept.into_iter().map(|(_, item)| item).collect();
         ToolOutput::new(&TradesOut {
-            matched: matched.len(),
+            matched: kept.len(),
             complete,
             note: (!complete).then(|| {
                 format!(
@@ -807,7 +814,11 @@ impl<S: Source> LoftyTools<S> {
                      missing, and any count or total here can be short."
                 )
             }),
-            page: page.page(matched, "property_id, direction or since/until")?,
+            page: page.page(
+                kept,
+                Order::Descending,
+                "property_id, direction or since/until",
+            )?,
         })
     }
 
@@ -912,8 +923,8 @@ fn locate<A: Reads>(
                 Ok(Some(address)) => position.address = Some(address),
                 Ok(None) | Err(_) => missing += 1,
             },
-            Err(CliError::Auth(m)) if is_forbidden(&m) => missing += 1,
-            Err(e @ (CliError::Auth(_) | CliError::Keychain(_))) => return Err(e),
+            Err(e) if e.reason() == Some(Reason::Forbidden) => missing += 1,
+            Err(e) if e.is_auth() || matches!(e, CliError::Keychain(_)) => return Err(e),
             Err(CliError::NotFound(_)) => missing += 1,
             Err(_) => {
                 missing += 1;

@@ -366,8 +366,8 @@ own Lofty account. There is no hosted service: the tools run on your computer, i
 | Tool | Answers |
 | --- | --- |
 | `lofty_account` | What do I hold, what is it worth, what has it earned? Balances, and each property's address, tokens, cost basis, value and rent earned, narrowed by `property_id`; `include_sold` adds properties fully sold |
-| `lofty_orders` | What is on the book? Resting limit orders newest first; `status` asks for others (`all`, `cancelled`), narrowed by `property_id` or `direction` |
-| `lofty_trades` | What did I trade, and when? Executed buys and sells newest first, narrowed by `property_id`, `direction` or `since`/`until` (UTC) |
+| `lofty_orders` | What is on the book? Resting limit orders newest day first, in no time order within a day; `status` asks for others (`all`, `cancelled`), narrowed by `property_id` or `direction` |
+| `lofty_trades` | What did I trade, and when? Executed buys and sells newest day first, in no time order within a day, narrowed by `property_id`, `direction` or `since`/`until` (UTC) |
 | `lofty_property` | What is this property doing? Its figures, whether it pays rent, and its best bid and ask from both the order book and the trade feed, which can disagree |
 
 No tool can place or cancel an order, swap or change anything, whatever the key allows: there is
@@ -382,9 +382,12 @@ page with a cursor for more. No result carries your user id or a chain transacti
 list reads Lofty's latest 200, and `complete: false` says older ones can be missing. A figure Lofty
 left out is absent rather than zero, and an answer of the wrong shape is an error. `lofty_account`
 reads Lofty once more for each position on the page, for its address, at 300 reads a minute per
-key; an address that cannot be had is left out, and a `note` says so. Each page reads Lofty again,
-so a row that changes between pages can repeat or be skipped: for a count, read one call with
-`limit` up to 200. Descriptions come from Lofty; the server tells Claude to treat them as data, not
+key; an address that cannot be had is left out, and a `note` says so. Each page reads Lofty again.
+`lofty_orders` and `lofty_trades` pick up from the last row's own position, so a row that arrives
+between pages repeats nothing and skips nothing, with one exception: a `lofty_trades` answer with
+`complete: false` is a latest-200 window, and a new trade can push its oldest row out. Other lists
+can repeat or skip a row that changes between pages: for a count, read one call with `limit` up to
+200. Descriptions come from Lofty; the server tells Claude to treat them as data, not
 instructions.
 
 The tools are worded for a model, so names differ from `--json`, which passes Lofty's own through:
