@@ -58,6 +58,7 @@ keeps the token it started with and goes on answering, without a key, until it i
 --new-token --overwrite` and restart the server (`launchctl kickstart -k gui/$(id
 -u)/com.piekstra.lofty-mcp-http`); the old token works until the restart. To stop serving, run
 `launchctl bootout gui/$(id -u)/com.piekstra.lofty-mcp-http` and stop the tunnel.
+A token supplied through `$LOFTY_MCP_TOKEN` is not stored, so the logout cannot reach it: to end it, unset the variable and stop the server.
 
 ## Repository data policy
 
