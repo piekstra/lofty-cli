@@ -65,12 +65,12 @@ jobs:
   secrets:
     name: gitleaks
     runs-on: ubuntu-latest
-    # gitleaks-action reads the PR's commits; without these it fails with
-    # "Resource not accessible by integration" on pull_request events.
+    # gitleaks-action lists the PR's commits and comments on the lines of a
+    # finding; it uploads its SARIF report as a workflow artifact, so it needs
+    # no code-scanning permission.
     permissions:
       contents: read
       pull-requests: write
-      security-events: write
     steps:
       - uses: actions/checkout@v4
         with:
