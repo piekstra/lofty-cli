@@ -61,3 +61,22 @@ jobs:
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check
+
+  secrets:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    # gitleaks-action lists the PR's commits and comments on the lines of a
+    # finding; it uploads its SARIF report as a workflow artifact, so it needs
+    # no code-scanning permission.
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        # .gitleaks.toml adds Lofty API keys to the default rules.
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

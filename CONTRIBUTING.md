@@ -54,27 +54,19 @@ Use the [issue templates](https://github.com/piekstra/lofty-cli/issues/new/choos
 For anything involving an account or a key, **redact** ids, balances, and the
 key itself before pasting output.
 
-## Privacy gate (required)
+## Privacy gate
 
-This repo is public. Enable the pre-commit gate in every clone — hooks are not
-cloned, so this is per-checkout:
+This repo is public. Its publication rules are in `.ppr.toml`: API keys,
+emails, account-shaped UUIDs, `.cache/` files, Claude session links or
+attribution trailers, and dollar figures in prose that aren't marked
+illustrative. On the owner's machine, `ppr` applies them in the global git
+hooks, and before every pull request it applies them to the PR title and body
+too (`ppr check`): a PR body is where real holdings once reached this repo.
+CI runs gitleaks on pull requests and pushes to main, with a rule for Lofty keys
+in `.gitleaks.toml`.
 
-```console
-$ git config core.hooksPath .githooks
-```
-
-Two hooks share one scanner. `pre-commit` scans the staged diff; `commit-msg`
-scans the message — separate because **the message does not exist during
-`pre-commit`**, so checking it there reads the *previous* commit's text.
-
-It blocks API keys, emails, account-shaped UUIDs, `.cache/` files, Claude session
-links or attribution trailers, and dollar figures in a message that aren't marked
-illustrative. Hooks can't see a **PR body or release note**, which is where real
-holdings once reached this repo, so check those by hand before publishing:
-
-```console
-$ gh pr view <N> --json body --jq .body | .githooks/privacy-scan text
-```
+Without ppr, read a PR body or release note against those rules by hand
+before publishing it.
 
 Use invented figures in all messages and docs. Never real balances, cost bases,
 order ids, or holdings.

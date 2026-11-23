@@ -1,0 +1,10 @@
+# gitleaks for lofty-cli: the default rules plus Lofty API keys, which CI's
+# gitleaks job then finds on pull requests and pushes to main.
+[extend]
+useDefault = true
+
+[[rules]]
+id = "lofty-api-key"
+description = "Lofty API key"
+regex = '''lofty_(live|test)_[A-Za-z0-9]{20,}'''
+keywords = ["lofty_live_", "lofty_test_"]

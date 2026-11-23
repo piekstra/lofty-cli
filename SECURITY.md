@@ -62,6 +62,7 @@ A token supplied through `$LOFTY_MCP_TOKEN` is not stored, so the logout cannot 
 
 ## Repository data policy
 
-This repository is public. `.githooks/privacy-scan` and the fixture policy in
+This repository is public. `.ppr.toml` (applied by the owner's hooks and before every pull
+request), CI's gitleaks job and the fixture policy in
 [`tests/fixtures/README.md`](tests/fixtures/README.md) keep API keys, account ids, balances and
 holdings out of it; account fixtures hold dummies only.
