@@ -62,7 +62,7 @@ attribution trailers, and dollar figures in prose that aren't marked
 illustrative. On the owner's machine, `ppr` applies them in the global git
 hooks, and before every pull request it applies them to the PR title and body
 too (`ppr check`): a PR body is where real holdings once reached this repo.
-CI runs gitleaks on every push and pull request, with a rule for Lofty keys
+CI runs gitleaks on pull requests and pushes to main, with a rule for Lofty keys
 in `.gitleaks.toml`.
 
 Without ppr, read a PR body or release note against those rules by hand

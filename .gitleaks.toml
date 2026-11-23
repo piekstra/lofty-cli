@@ -1,5 +1,5 @@
 # gitleaks for lofty-cli: the default rules plus Lofty API keys, which CI's
-# gitleaks job then finds on every push and pull request.
+# gitleaks job then finds on pull requests and pushes to main.
 [extend]
 useDefault = true
 
