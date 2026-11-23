@@ -1,0 +1,24 @@
+# Publication rules for this public repository, read by ppr: the global
+# pre-commit and commit-msg hooks on the owner's machine, and `ppr check`
+# before a pull request. They replace .githooks/privacy-scan. CI runs
+# gitleaks, with the Lofty key rule in .gitleaks.toml.
+visibility = "public"
+
+[rules]
+email = "high"                 # placeholder domains only (example.com, noreply)
+uuid = "high"                  # the account id has this shape
+money = "high"                 # dollar figures in prose need an "illustrative" note
+claude-session-link = "critical"
+ai-attribution = "high"        # Claude co-author and session trailers stay off
+
+[[pattern]]
+id = "lofty-api-key"
+regex = 'lofty_(live|test)_[A-Za-z0-9]{20,}'
+severity = "critical"
+message = "a Lofty API key"
+
+[[path]]
+id = "local-cache"
+regex = '(^|/)\.cache/'
+severity = "critical"
+message = "a file under .cache/ (holdings, P&L and the ledger stay local)"

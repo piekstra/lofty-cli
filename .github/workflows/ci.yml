@@ -61,3 +61,22 @@ jobs:
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check
+
+  secrets:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    # gitleaks-action reads the PR's commits; without these it fails with
+    # "Resource not accessible by integration" on pull_request events.
+    permissions:
+      contents: read
+      pull-requests: write
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        # .gitleaks.toml adds Lofty API keys to the default rules.
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
