@@ -1,8 +1,9 @@
 # Contributing to lofty-cli
 
 Thanks for your interest! Contributions — bug reports, fixes, new commands,
-docs — are welcome under the project's [MIT license](LICENSE): by opening a pull
-request you agree your contribution is licensed under those same terms.
+docs — are welcome under the project's [AGPL-3.0-only license](LICENSE): by
+opening a pull request you agree your contribution is licensed under those same
+terms.
 
 ## Ground rules (this is a trading client — safety first)
 

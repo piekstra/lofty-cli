@@ -5,7 +5,7 @@ edition = "2021"
 # pk-cli-auth (cli-common v0.21.0) needs 1.89.
 rust-version = "1.89"
 description = "Interact with the Lofty (lofty.ai) fractional real-estate marketplace API — market data, order books, and market-making analysis. Keychain-secured, agent-friendly."
-license = "MIT"
+license = "AGPL-3.0-only"
 repository = "https://github.com/piekstra/lofty-cli"
 homepage = "https://github.com/piekstra/lofty-cli"
 readme = "README.md"
