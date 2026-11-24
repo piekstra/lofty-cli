@@ -16,7 +16,7 @@
   "homepage": "https://github.com/piekstra/lofty-cli",
   "documentation": "https://github.com/piekstra/lofty-cli#use-with-claude",
   "support": "https://github.com/piekstra/lofty-cli/issues",
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "keywords": [
     "lofty",
     "real-estate",

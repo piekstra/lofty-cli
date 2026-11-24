@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/piekstra/lofty-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/piekstra/lofty-cli/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/piekstra/lofty-cli?sort=semver)](https://github.com/piekstra/lofty-cli/releases)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](LICENSE)
 
 A fast, keychain-secured, agent-friendly command line for the
 [Lofty](https://www.lofty.ai) fractional real-estate marketplace: market data,
@@ -525,5 +525,6 @@ the traps worth knowing before you probe anything.
 
 ## License
 
-[MIT](LICENSE) © piekstra. Contributions welcome under the same terms — see
-[CONTRIBUTING.md](CONTRIBUTING.md).
+Copyright (C) 2026 piekstra. Licensed under the GNU Affero General Public
+License, version 3 only (AGPL-3.0-only); see [LICENSE](LICENSE). Releases up to
+and including v0.2.3 were published under MIT.
